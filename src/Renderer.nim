@@ -1,6 +1,6 @@
 import std/[os, strformat, options]
 
-import pkg/[glm, glfw, nimja/sharedhelper]
+import pkg/[glm, glfw]
 import ./glad/gl
 import GlUtils, Slangc
 
@@ -10,13 +10,15 @@ type
   ColorUbo = object
     myColor: GLfloat
 
+const shadersDir = currentSourcePath().parentDir().parentDir()
+
 var opts = SlangcOptions(
-  inFile: getScriptDir() /../ "shaders/HelloTriangle.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
+  inFile: shadersDir / "shaders/HelloTriangle.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
 )
 let vertexShaderText = compileShaderOrRaise(opts)
 
 opts = SlangcOptions(
-  inFile: getScriptDir() /../ "shaders/HelloTriangle.slang", stage: Fragment, entryPoint: "fragmentMain", target: Glsl
+  inFile: shadersDir / "shaders/HelloTriangle.slang", stage: Fragment, entryPoint: "fragmentMain", target: Glsl
 )
 let fragmentShaderText = compileShaderOrRaise(opts)
 
@@ -49,7 +51,8 @@ proc init() =
   vbo = initVertexBuffer (vertices, GL_STATIC_DRAW).some
   ebo = initElementBuffer (indices, GL_STATIC_DRAW).some
   vao = initVertexArray()
-  vao.attachVertexBuffer(vbo)
+  vao.use()
+  vbo.use()
   vao.attachElementBuffer(ebo)
 
 proc uninit() =

@@ -263,8 +263,6 @@ type
   VertexArrayRef* = ref object
     id: GLuint
     attachedElementBuffer: ElementBufferRef
-    attachedVertexBufferActivators: seq[proc()]
-    attachedVertexBufferCleaners: seq[proc()]
 
 proc initVertexArray*(): VertexArrayRef =
   result = new VertexArrayRef
@@ -272,8 +270,6 @@ proc initVertexArray*(): VertexArrayRef =
 
 proc cleanup*(a: var VertexArrayRef) =
   glDeleteVertexArrays(1, addr a.id)
-  for bufferCleanupFn in a.attachedVertexBufferCleaners:
-    bufferCleanupFn()
   a = nil
 proc `=dispose`*(a: var VertexArrayRef) = a.cleanup()
 
@@ -281,16 +277,6 @@ proc isActive*(a: VertexArrayRef): bool =
   var currentVertexArrayIdStore: GLint
   glGetIntegerv(GL_VERTEX_ARRAY_BINDING, addr currentVertexArrayIdStore)
   return a.id == cast[GLuint](currentVertexArrayIdStore)
-
-proc attachVertexBuffer*[T: object](a: var VertexArrayRef, b: var VertexBufferRef[T]) =
-  var bCaptureWorkaround = b # WTF Nim :D
-  let activationFn = proc () {.closure.} = bCaptureWorkaround.use()
-  let cleanupFn = proc () {.closure.} = bCaptureWorkaround.cleanup()
-  a.attachedVertexBufferActivators.add activationFn
-  a.attachedVertexBufferCleaners.add cleanupFn
-
-  if a.isActive(): # Activate vertex buffer and its attributes
-    b.use()
 
 proc attachElementBuffer*(a: var VertexArrayRef, b: ElementBufferRef) =
   a.attachedElementBuffer = b
@@ -300,8 +286,6 @@ proc attachElementBuffer*(a: var VertexArrayRef, b: ElementBufferRef) =
 proc glBind(a: VertexArrayRef) = glBindVertexArray(a.id)
 proc use*(a: VertexArrayRef) =
   a.glBind()
-  for activationFn in a.attachedVertexBufferActivators:
-    activationFn()
   if a.attachedElementBuffer != nil:
     a.attachedElementBuffer.glBind()
 
