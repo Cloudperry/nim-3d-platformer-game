@@ -1,4 +1,4 @@
-import std/[tables, strformat, options, sequtils]
+import std/[tables, strformat, options, sequtils, bitops]
 import ./glad/gl
 import pkg/glm
 
@@ -35,7 +35,7 @@ converter toCstringArray(s: string): cstringArray {.inline.} =
   return cast[cstringArray](addr arr)
 
 type ShaderRef* = ref object
-  id: GLuint
+  id*: GLuint
 
 proc initShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
   result = new ShaderRef
@@ -71,7 +71,7 @@ proc cleanup*(s: var ShaderRef) =
 proc `=dispose`*(s: var ShaderRef) = s.cleanup()
 
 type ShaderStorageRef*[T] = ref object
-  id: GLuint
+  id*: GLuint
   storageType: GLenum
   shaderSlots: Table[GLuint, int]
   data*: T
@@ -80,6 +80,7 @@ proc initShaderStorage*[T](targetShader: ShaderRef, storageType: GLenum, shaderS
   result = new ShaderStorageRef[T]
   result.shaderSlots = initTable[GLuint, int]()
   result.shaderSlots[targetShader.id] = shaderSlot
+  result.storageType = storageType
 
   glGenBuffers(1, addr result.id)
   glBindBuffer(GL_UNIFORM_BUFFER, result.id)
@@ -87,7 +88,7 @@ proc initShaderStorage*[T](targetShader: ShaderRef, storageType: GLenum, shaderS
   if data.isSome:
     result.data = data.get
     dataRef = addr result.data
-  glBufferData(GL_UNIFORM_BUFFER, sizeof T, dataRef, storageType)
+  glBufferData(GL_UNIFORM_BUFFER, sizeof T, dataRef, result.storageType)
   glBindBufferBase(GL_UNIFORM_BUFFER, shaderSlot, result.id)
 
 # TODO: Add function for associating the UBO with more shaders (for UBOs that get passed between shaders like compute -> vertex/fragment)
@@ -98,7 +99,7 @@ proc use*[T](storage: ShaderStorageRef[T], shader: ShaderRef) =
   let slot = storage.shaderSlots[shader.id]
   glBindBufferBase(GL_UNIFORM_BUFFER, slot, storage.id)
 
-proc upload*[T](s: ShaderStorageRef[T], storageType: Option[GLenum]) =
+proc upload*[T](s: ShaderStorageRef[T], storageType: Option[GLenum] = GLenum.none) =
   s.glBind()
   let storageType = if storageType.isSome:
     storageType.get
@@ -106,18 +107,16 @@ proc upload*[T](s: ShaderStorageRef[T], storageType: Option[GLenum]) =
     s.storageType
   glBufferData(GL_UNIFORM_BUFFER, sizeof T, addr s.data, storageType)
 
-proc uploadRegion*[T](storage: ShaderStorageRef[T], offset: int, size: int) =
+proc uploadRegion*[T](storage: ShaderStorageRef[T], offset: int, size: int, regionStartPtr: pointer) =
   storage.glBind()
-  glBufferSubData(GL_UNIFORM_BUFFER, offset, size, addr storage.data)
+  glBufferSubData(GL_UNIFORM_BUFFER, offset, size, regionStartPtr)
 
-template uploadField*[T](storage: ShaderStorageRef[T], obj, field, body: untyped) =
-  body
-  storage.uploadRegion(T.offsetOf(field), sizeof obj.field)
+template uploadField*[T](storage: ShaderStorageRef[T], field: untyped) =
+  storage.uploadRegion(T.offsetOf(field), sizeof storage.data.field, addr storage.data.field)
 
 proc cleanup*(s: var ShaderStorageRef) =
   glDeleteBuffers(1, addr s.id)
   s = nil
-
 proc `=dispose`*(s: var ShaderStorageRef) = s.cleanup()
 
 type
@@ -127,7 +126,7 @@ type
 
   # TODO: Add partial uploads/updates for VBO
   VertexBufferRef*[T: object] = ref object
-    id: GLuint
+    id*: GLuint
     bufferType: GLenum
     data: seq[T] # Should probably be ref to avoid copying large buffers?
     vertexAttribs: seq[VertexAttrib]
@@ -236,7 +235,7 @@ proc `=dispose`*[T](b: var VertexBufferRef[T]) = b.cleanup()
 type
   InitEBuf* = tuple[data: seq[GLuint], bufType: GLenum]
   ElementBufferRef* = ref object
-    id: GLuint
+    id*: GLuint
     indices: seq[GLuint]
 
 proc glBind*(b: ElementBufferRef) = glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.id)
@@ -261,7 +260,7 @@ proc `=dispose`*(b: var ElementBufferRef) = b.cleanup()
 
 type
   VertexArrayRef* = ref object
-    id: GLuint
+    id*: GLuint
     attachedElementBuffer: ElementBufferRef
 
 proc initVertexArray*(): VertexArrayRef =
@@ -289,4 +288,54 @@ proc use*(a: VertexArrayRef) =
   if a.attachedElementBuffer != nil:
     a.attachedElementBuffer.glBind()
 
-# TODO: Add error handling from https://learnopengl.com/In-Practice/Debugging
+proc glDebugOutput(
+  source: GLenum, glType: GLenum, id: GLuint, severity: GLenum, length: GLsizei,
+  message: ptr GLchar, userParam: pointer
+) {.stdcall.} =
+  let messageStr = cast[cstring](message)
+  # ignore non-significant error/warning codes
+  if id in [131169'u32, 131185'u32, 131218'u32, 131204'u32]: return
+
+  echo "---------------"
+  echo fmt"Debug message ({id}): {messageStr}"
+
+  case source
+  of GL_DEBUG_SOURCE_API:             echo "Source: API"
+  of GL_DEBUG_SOURCE_WINDOW_SYSTEM:   echo "Source: Window System"
+  of GL_DEBUG_SOURCE_SHADER_COMPILER: echo "Source: Shader Compiler"
+  of GL_DEBUG_SOURCE_THIRD_PARTY:     echo "Source: Third Party"
+  of GL_DEBUG_SOURCE_APPLICATION:     echo "Source: Application"
+  of GL_DEBUG_SOURCE_OTHER:           echo "Source: Other"
+  else:                               echo "Source: Unexpected" # learnopengl.com didn't have any log output for this
+
+  case glType
+  of GL_DEBUG_TYPE_ERROR:               echo "Type: Error"
+  of GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: echo "Type: Deprecated Behaviour"
+  of GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  echo "Type: Undefined Behaviour"
+  of GL_DEBUG_TYPE_PORTABILITY:         echo "Type: Portability"
+  of GL_DEBUG_TYPE_PERFORMANCE:         echo "Type: Performance"
+  of GL_DEBUG_TYPE_MARKER:              echo "Type: Marker"
+  of GL_DEBUG_TYPE_PUSH_GROUP:          echo "Type: Push Group"
+  of GL_DEBUG_TYPE_POP_GROUP:           echo "Type: Pop Group"
+  of GL_DEBUG_TYPE_OTHER:               echo "Type: Other"
+  else:                                 echo "Type: Unexpected" # learnopengl.com didn't have any log output for this
+
+  case severity
+  of GL_DEBUG_SEVERITY_HIGH:         echo "Severity: high"
+  of GL_DEBUG_SEVERITY_MEDIUM:       echo "Severity: medium"
+  of GL_DEBUG_SEVERITY_LOW:          echo "Severity: low"
+  of GL_DEBUG_SEVERITY_NOTIFICATION: echo "Severity: notification"
+  else:                              echo "Severity: Unexpected" # learnopengl.com didn't have any log output for this
+
+  echo ""
+
+proc setupGlDebugLogging*() =
+  var flags: GLint; glGetIntegerv(GL_CONTEXT_FLAGS, addr flags);
+  if bitand(flags, GL_CONTEXT_FLAG_DEBUG_BIT.GLint) != 0:
+    glEnable(GL_DEBUG_OUTPUT)
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS)
+    glDebugMessageCallback(glDebugOutput, cast[pointer](nil))
+    glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, cast[ptr GLuint](nil), true) # This controls filtering of log messages
+    echo "OpenGL debug logging activated"
+  else:
+    raise newException(Exception, "Couldn't setup debug logging. Maybe you tried to setup debug logging without a debug OpenGL context?")
