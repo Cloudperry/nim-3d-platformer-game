@@ -10,7 +10,6 @@ type
   # Packed pragma might be necessary or more correct for structs passed to GPU?
   Uniforms = object
     mvp: Mat4f
-    myColor: GLfloat
   Transform = object
     pos: Vec3[float]
     scale: Vec3[float]
@@ -30,6 +29,9 @@ let fragmentShaderText = compileShaderOrRaise(opts)
 
 var
   # Renderer state and wrapper objects
+  fullscreen = false
+  monitor: Monitor
+  prevWinProps: tuple[x, y, w, h, refreshRate: int]
   shader: ShaderRef
   uniforms: ShaderStorageRef[Uniforms]
   vbo: VertexBufferRef[ColoredVertex]
@@ -96,7 +98,7 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   # Starting window parameters
   win.pos = (150, 100)
   win.aspectRatio = (3, 2)
-  win.sizeLimits = (300, 200, 1200, 800)
+  monitor = getPrimaryMonitor()
 
   # Compile and link shader and check errors
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
@@ -135,6 +137,25 @@ proc update(win: Window, deltaTime: float) =
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
     win.shouldClose = true
+  elif (key == keyLeftAlt and win.isKeyDown(keyEnter) or
+  key == keyEnter and win.isKeyDown(keyLeftAlt)) and action == kaDown:
+    if not fullscreen:
+      let monitorArea = monitor.workArea()
+      let monitorMode = monitor.videoMode()
+      prevWinProps = (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
+      echo fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
+      win.monitor = (monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)
+    else:
+      echo fmt"Going out of fullscreen {(prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)}"
+      win.monitor = (newMonitor(nil), prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)
+    fullscreen = not fullscreen
+
+#[ 
+On Wayland, win.monitor seems to return null...
+
+proc positionCb(win: Window, pos: tuple[x, y: int32]) =
+  monitor = win.monitor
+]#
 
 proc draw(win: Window) =
   var (width, height) = glfw.framebufferSize(win)
@@ -144,11 +165,8 @@ proc draw(win: Window) =
   let viewMat = ortho[GLfloat](-ratio, ratio, -1.0, 1.0, 1.0, -1.0)
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
   shader.use()
-  uniforms.data.myColor = sin(getTime()) / 2.0 + 0.5
   uniforms.data.mvp = viewMat * modelTransform.getTransformMat()
   uniforms.upload()
   uniforms.use(shader)

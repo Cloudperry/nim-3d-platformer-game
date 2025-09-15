@@ -17,7 +17,6 @@ struct FragmentOutput {
 
 struct Uniforms {
   float4x4 mvp;
-  float myColor;
 }
 
 [[vk::binding(0)]]
@@ -34,6 +33,6 @@ VertexOutput vertexMain(VertexInput input) {
 [shader("fragment")]
 FragmentOutput fragmentMain(VertexOutput input) {
   FragmentOutput output;
-  output.color = float4(input.vertColor, uniforms.myColor);
+  output.color = float4(input.vertColor, 1.0f);
   return output;
 }
