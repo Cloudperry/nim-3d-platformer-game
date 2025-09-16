@@ -1,4 +1,4 @@
-import std/[os, strformat, options]
+import std/[os, strformat, options, math]
 
 import pkg/[glm, glfw]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
@@ -12,20 +12,29 @@ type
   Uniforms = object
     mvp: Mat4f
   Transform = object
-    pos: Vec3[GLfloat]
-    scale: Vec3[GLfloat] = vec3f(1.0, 1.0, 1.0)
-    rotation: Vec3[GLfloat]
+    pos: Vec3f
+    scale: Vec3f = vec3f(1.0, 1.0, 1.0)
+    rotation: Vec3f
   ProjectionKind = enum
     Orthographic, Perspective
+  FpCameraOptions = object
+    pitch, yaw, sensitivity, speed: float
+  # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
   Camera = object
-    transform: Transform
-    transformMat, viewMat, projectionMat: Mat4f
+    pos: Vec3f
+    yaw: GLfloat = PI/2 # Start the camera looking forward (toward -Z)
+    pitch: GLfloat
+    viewMat, projectionMat: Mat4f
     aspectRatio, nearClip, farClip: GLfloat
     case kind: ProjectionKind
     of Orthographic:
       frustumScale: GLfloat
     of Perspective:
       verticalFov: GLfloat
+
+const
+  degToRad = PI / 180
+  camOptions = FpCameraOptions(pitch: 0.022 * degToRad, yaw: 0.022 * degToRad, speed: 2.5, sensitivity: 1.5)
 
 proc updateProjectionMat(c: var Camera) =
   c.projectionMat = case c.kind
@@ -69,6 +78,9 @@ opts = SlangcOptions(
 let fragmentShaderText = compileShaderOrRaise(opts)
 
 var
+  # Input
+  prevCursorX, prevCursorY: float = 0
+
   # Renderer state and wrapper objects
   fullscreen = false
   monitor: Monitor
@@ -127,9 +139,39 @@ proc getTransformMat(t: Transform): Mat4f =
   translateMat[3, 2] = t.pos.z
   return translateMat * rotateMat * scaleMat
 
-proc updateTransform(c: var Camera, t: Transform) =
-  c.transform = t
-  c.viewMat = t.getTransformMat().inverse()
+proc getLocalDirections(c: Camera): tuple[forward, right, up: Vec3f] =
+  let
+    cosPitch = cos(c.pitch)
+    sinPitch = sin(c.pitch)
+    cosYaw = cos(c.yaw)
+    sinYaw = sin(c.yaw)
+    forward = vec3f(cosPitch * cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
+    right = cross(forward, vec3f(0, 1, 0)).normalize()
+    up = cross(right, forward)
+  return (forward, right, up)
+
+proc getCameraViewMat(c: Camera): Mat4f =
+  let (forward, right, up) = c.getLocalDirections()
+  return lookAt(c.pos, c.pos + forward, up)
+proc updateTransform(c: var Camera) = c.viewMat = c.getCameraViewMat()
+
+proc moveLocally(c: var Camera, moveBy: Vec3f) =
+  let (forward, right, up) = c.getLocalDirections()
+  let moveByWorldSpace = moveBy.x * right + moveBy.y * up - moveBy.z * forward
+  c.pos += moveByWorldSpace
+
+proc rotate(c: var Camera; deltaX, deltaY: float) =
+  let deltaYaw = deltaX * camOptions.yaw * camOptions.sensitivity
+  let deltaPitch = deltaY * camOptions.pitch * camOptions.sensitivity
+
+  c.yaw += deltaYaw
+  c.pitch += deltaPitch
+
+  # Prevent vertical flipping
+  c.pitch = c.pitch.clamp(-PI / 2, PI / 2)
+  # Keep yaw in -180 .. 180 degrees
+  if c.yaw > PI: c.yaw -= 2 * PI
+  if c.yaw < -PI: c.yaw += 2 * PI
 
 proc updateCameraAspect(win: Window) =
   var (width, height) = glfw.framebufferSize(win)
@@ -152,7 +194,8 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
 
   monitor = getPrimaryMonitor()
   camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
-  camera.updateTransform(camera.transform)
+  camera.pos = vec3f(0, 0, 0)
+  camera.updateTransform()
   win.updateCameraAspect()
 
   # Compile and link shader and check errors
@@ -177,23 +220,33 @@ proc uninit() =
 
 proc update(win: Window, deltaTime: float) =
   # Keyboard input
+  var moveBy = vec3f(0)
   if win.isKeyDown(keyComma):
-    camera.transform.pos.z -= deltaTime * 1
+    moveBy.z -= 1
   elif win.isKeyDown(keyO):
-    camera.transform.pos.z += deltaTime * 1
+    moveBy.z += 1
   if win.isKeyDown(keyE):
-    camera.transform.pos.x -= deltaTime * 1
+    moveBy.x -= 1
   elif win.isKeyDown(keyA):
-    camera.transform.pos.x += deltaTime * 1
+    moveBy.x += 1
   if win.isKeyDown(keySpace):
-    camera.transform.pos.y -= deltaTime * 1
+    moveBy.y -= 1
   elif win.isKeyDown(keyBackslash):
-    camera.transform.pos.y += deltaTime * 1
+    moveBy.y += 1
 
-  #TODO: Add mouse input using cursor position deltas
-  # echo win.cursorPos()
+  # Do camera movement
+  if moveBy != vec3f(0):
+    moveBy = moveBy.normalize() * (camOptions.speed * deltaTime)
+    camera.moveLocally(moveBy)
 
-  camera.updateTransform(camera.transform)
+  # Do camera rotation
+  let cursorPos = win.cursorPos
+  let (cursorDeltaX, cursorDeltaY) = (cursorPos.x - prevCursorX, cursorPos.y - prevCursorY)
+  if (cursorDeltaX, cursorDeltaY) != (0.0, 0.0):
+    camera.rotate(cursorDeltaX, cursorDeltaY)
+  (prevCursorX, prevCursorY) = cursorPos
+
+  camera.updateTransform()
 
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
