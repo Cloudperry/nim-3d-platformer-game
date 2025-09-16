@@ -1,6 +1,7 @@
 import std/[os, strformat, options]
 
 import pkg/[glm, glfw]
+from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
 import GlUtils, Slangc
 
@@ -11,9 +12,49 @@ type
   Uniforms = object
     mvp: Mat4f
   Transform = object
-    pos: Vec3[float]
-    scale: Vec3[float]
-    rotation: Vec3[float]
+    pos: Vec3[GLfloat]
+    scale: Vec3[GLfloat] = vec3f(1.0, 1.0, 1.0)
+    rotation: Vec3[GLfloat]
+  ProjectionKind = enum
+    Orthographic, Perspective
+  Camera = object
+    transform: Transform
+    transformMat, viewMat, projectionMat: Mat4f
+    aspectRatio, nearClip, farClip: GLfloat
+    case kind: ProjectionKind
+    of Orthographic:
+      frustumScale: GLfloat
+    of Perspective:
+      verticalFov: GLfloat
+
+proc updateProjectionMat(c: var Camera) =
+  c.projectionMat = case c.kind
+  of Orthographic: ortho[GLfloat](
+    -c.frustumScale * c.aspectRatio, c.frustumScale * c.aspectRatio,
+    -c.frustumScale, c.frustumScale, c.nearClip, c.farClip
+  )
+  of Perspective: perspective[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
+
+proc initPerspectiveCamera(verticalFov, aspectRatio, nearClip, farClip: GLfloat): Camera =
+  result = Camera(kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov, nearClip: nearClip, farClip: farClip)
+  result.updateProjectionMat()
+proc setPerspective(c: var Camera, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
+  c.kind = Perspective
+  c.verticalFov = verticalFov
+  c.aspectRatio = aspectRatio
+  c.nearClip = nearClip
+  c.farClip = farClip
+  c.updateProjectionMat()
+
+proc initOrthographicCamera(frustumScale, aspectRatio, nearClip, farClip: GLfloat): Camera =
+  Camera(kind: Orthographic, aspectRatio: aspectRatio, frustumScale: frustumScale, nearClip: nearClip, farClip: farClip)
+proc setOrthographic(c: var Camera, frustumScale, aspectRatio, nearClip, farClip: GLfloat) =
+  c.kind = Orthographic
+  c.frustumScale = frustumScale
+  c.aspectRatio = aspectRatio
+  c.nearClip = nearClip
+  c.farClip = farClip
+  c.updateProjectionMat()
 
 const shadersDir = currentSourcePath().parentDir().parentDir()
 
@@ -32,6 +73,7 @@ var
   fullscreen = false
   monitor: Monitor
   prevWinProps: tuple[x, y, w, h, refreshRate: int]
+  camera: Camera
   shader: ShaderRef
   uniforms: ShaderStorageRef[Uniforms]
   vbo: VertexBufferRef[ColoredVertex]
@@ -50,20 +92,14 @@ var
     ColoredVertex(pos: vec3f(-0.5,  0.5, 1.0), color: vec3f(0.0, 1.0, 1.0)) # back top left
   ]
   indices: seq[GLuint] = @[
-    # front
-    0, 1, 3,  1, 2, 3,
-    # right
-    0, 4, 1,  1, 4, 5,
-    # left
-    3, 2, 7,  2, 6, 7,
-    # bottom
-    1, 5, 2,  2, 5, 6,
-    # top
-    0, 3, 4,  3, 7, 4,
-    # back
-    4, 7, 5,  5, 7, 6
+    0, 1, 3,  1, 2, 3, # front
+    0, 4, 1,  1, 4, 5, # right
+    3, 2, 7,  2, 6, 7, # left
+    1, 5, 2,  2, 5, 6, # bottom
+    0, 3, 4,  3, 7, 4, # top
+    4, 7, 5,  5, 7, 6 # back
   ]
-  modelTransform = Transform(pos: vec3d(0, 0, 0), scale: vec3d(1, 1, 1))
+  modelTransform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
 
 proc getTransformMat(t: Transform): Mat4f =
   var scaleMat, translateMat, rotateMat = mat4f(1.0)
@@ -91,14 +127,33 @@ proc getTransformMat(t: Transform): Mat4f =
   translateMat[3, 2] = t.pos.z
   return translateMat * rotateMat * scaleMat
 
+proc updateTransform(c: var Camera, t: Transform) =
+  c.transform = t
+  c.viewMat = t.getTransformMat().inverse()
+
+proc updateCameraAspect(win: Window) =
+  var (width, height) = glfw.framebufferSize(win)
+  var ratio = width / height
+  case camera.kind
+  of Perspective: camera.setPerspective(camera.verticalFov, ratio, camera.nearClip, camera.farClip)
+  of Orthographic: camera.setOrthographic(camera.frustumScale, ratio, camera.nearClip, camera.farClip)
+
+  glViewport(0, 0, width, height)
+
 proc init(win: Window, cfg: OpenglWindowConfig) =
   if cfg.debugContext:
     setupGlDebugLogging()
 
-  # Starting window parameters
   win.pos = (150, 100)
   win.aspectRatio = (3, 2)
+  win.cursorMode = cmDisabled
+  win.rawMouseMotion = true
+  echo fmt"raw supported: {rawMouseMotionSupported() != 0}"
+
   monitor = getPrimaryMonitor()
+  camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
+  camera.updateTransform(camera.transform)
+  win.updateCameraAspect()
 
   # Compile and link shader and check errors
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
@@ -121,18 +176,24 @@ proc uninit() =
   shader.cleanup()
 
 proc update(win: Window, deltaTime: float) =
+  # Keyboard input
   if win.isKeyDown(keyComma):
-    modelTransform.pos.z -= deltaTime * 1
+    camera.transform.pos.z -= deltaTime * 1
   elif win.isKeyDown(keyO):
-    modelTransform.pos.z += deltaTime * 1
-  elif win.isKeyDown(keyE):
-    modelTransform.pos.x += deltaTime * 1
+    camera.transform.pos.z += deltaTime * 1
+  if win.isKeyDown(keyE):
+    camera.transform.pos.x -= deltaTime * 1
   elif win.isKeyDown(keyA):
-    modelTransform.pos.x -= deltaTime * 1
-  elif win.isKeyDown(keySpace):
-    modelTransform.pos.y += deltaTime * 1
+    camera.transform.pos.x += deltaTime * 1
+  if win.isKeyDown(keySpace):
+    camera.transform.pos.y -= deltaTime * 1
   elif win.isKeyDown(keyBackslash):
-    modelTransform.pos.y -= deltaTime * 1
+    camera.transform.pos.y += deltaTime * 1
+
+  #TODO: Add mouse input using cursor position deltas
+  # echo win.cursorPos()
+
+  camera.updateTransform(camera.transform)
 
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
@@ -157,17 +218,15 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   monitor = win.monitor
 ]#
 
-proc draw(win: Window) =
-  var (width, height) = glfw.framebufferSize(win)
-  var ratio = width / height
+proc sizeCb(win: Window; size: tuple[w, h: int32]) =
+  win.updateCameraAspect()
 
-  glViewport(0, 0, width, height)
-  let viewMat = ortho[GLfloat](-ratio, ratio, -1.0, 1.0, 1.0, -1.0)
+proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
 
   shader.use()
-  uniforms.data.mvp = viewMat * modelTransform.getTransformMat()
+  uniforms.data.mvp = camera.projectionMat * camera.viewMat * modelTransform.getTransformMat()
   uniforms.upload()
   uniforms.use(shader)
   vao.use()
@@ -187,6 +246,7 @@ proc main() =
 
   var win = newWindow(cfg)
   win.keyCb = keyCb
+  win.windowSizeCb = sizeCb
 
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
