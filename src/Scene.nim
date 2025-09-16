@@ -1,7 +1,8 @@
-import std/strformat
+import std/[strformat, options]
 import ./glad/gl
 import pkg/glm
 
+# ======================================== Camera handling and basic transforms ========================================
 const degToRad = PI / 180
 
 type
@@ -132,3 +133,42 @@ proc doFirstPersonCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirect
 
   if tChanged:
     c.updateTransform()
+
+# ======================================== Models and scene representation ========================================
+type 
+  ColoredVertex* = object
+    pos*, color*, normal*: Vec3f
+  # TODO: Add models with textures
+  TexturedVertex* = object
+    pos*, normal*: Vec3f
+    uv*: Vec2f
+  Model*[T] = object
+    transform*: Transform
+    vertices*: seq[T]
+    indices*: seq[GLuint] # Indices can be left empty and it means the model has a raw triangle vertex list
+  DirectionalLight* = object
+    direction*: Vec3f # This should always be normalized
+    color*: Vec3f
+  PointLight* = object
+    position*: Vec3f
+    color*: Vec3f
+    constFalloff*, linearFalloff*, expFalloff*: float
+    # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
+  Scene*[T] = object
+    cam*: Camera
+    models*: seq[Model[T]]
+    dirLight*: DirectionalLight
+    ambientLightColor*: Vec3f
+
+proc posColorNorm(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
+proc posUvNorm(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
+
+proc initModel[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()): Model[T] =
+  Model(vertices: vertices, indices: indices, transform: transform)
+
+proc initScene[T](cam: Camera, models: seq[Model[T]], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
+  result = Scene(cam: cam, models: models)
+  if dirLight.isSome:
+    result.dirLight = dirLight
+  if ambientLight.isSome:
+    result.ambientLightColor = ambientLight

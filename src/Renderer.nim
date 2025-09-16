@@ -12,6 +12,16 @@ type
   Uniforms = object
     mvp: Mat4f
 
+  # GPU side representation of the scene objects from Scene.nim
+  GpuSceneStorage[T] = object
+    discard
+
+  GpuSceneUniforms[T] = object
+    cameraPos: Vec3f
+    worldToViewMat, viewToClipMat: Mat4f
+    dirLight: DirectionalLight
+    ambientLightColor: Vec3f
+
 const shadersDir = currentSourcePath().parentDir().parentDir()
 
 var opts = SlangcOptions(
