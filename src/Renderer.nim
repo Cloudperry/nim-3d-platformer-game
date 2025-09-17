@@ -13,15 +13,11 @@ type
   GpuSceneUniforms {.packed.} = object
     # TODO: Make a macro that does OpenGL std140 padding automatically. This obj has manual padding that is very ugly.
     cameraPos: Vec3f
-    pad0: GLfloat
     # Just one model to world transform for now, separate transforms for each model will be needed later
-    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
+    modelToWorldMat {.align(16).}, worldToViewMat, viewToClipMat: Mat4f 
     mainLightDirection: Vec3f
-    pad1: GLfloat
-    mainLightColor: Vec3f
-    pad2: GLfloat
-    ambientLightColor: Vec3f
-    pad3: GLfloat
+    mainLightColor {.align(16).}: Vec3f
+    ambientLightColor {.align(16).}: Vec3f
 
 const shadersDir = currentSourcePath().parentDir().parentDir()
 
