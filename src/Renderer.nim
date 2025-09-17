@@ -6,20 +6,22 @@ import ./glad/gl
 import GlUtils, Slangc, Scene
 
 type
-  # Packed pragma might be necessary or more correct for structs passed to GPU?
-  Uniforms = object
-    mvp: Mat4f
-
   # GPU side representation of the scene objects from Scene.nim
   GpuSceneStorage[T] = object
     discard
 
-  GpuSceneUniforms[T] = object
+  GpuSceneUniforms {.packed.} = object
+    # TODO: Make a macro that does OpenGL std140 padding automatically. This obj has manual padding that is very ugly.
     cameraPos: Vec3f
+    pad0: GLfloat
     # Just one model to world transform for now, separate transforms for each model will be needed later
     modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
-    dirLight: DirectionalLight
+    mainLightDirection: Vec3f
+    pad1: GLfloat
+    mainLightColor: Vec3f
+    pad2: GLfloat
     ambientLightColor: Vec3f
+    pad3: GLfloat
 
 const shadersDir = currentSourcePath().parentDir().parentDir()
 
@@ -45,7 +47,7 @@ var
   camera: Camera
   cameraOpts: FpCameraOptions
   shader: ShaderRef
-  uniforms: ShaderStorageRef[Uniforms]
+  uniforms: ShaderStorageRef[GpuSceneUniforms]
   vbo: VertexBufferRef[ColoredVertex]
   vao: VertexArrayRef
   ebo: ElementBufferRef
@@ -137,7 +139,7 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   # Compile and link shader and check errors
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
-  uniforms = initShaderStorage[Uniforms](shader, GL_DYNAMIC_DRAW, 0)
+  uniforms = initShaderStorage[GpuSceneUniforms](shader, GL_DYNAMIC_DRAW, 0)
 
   # Set up OpenGL buffers for passing vertex data to shaders
   vbo = initVertexBuffer (vertices, GL_STATIC_DRAW).some
@@ -212,7 +214,12 @@ proc draw(win: Window) =
   glClear(GL_COLOR_BUFFER_BIT)
 
   shader.use()
-  uniforms.data.mvp = camera.projectionMat * camera.viewMat * modelTransform.getTransformMat()
+  uniforms.data.modelToWorldMat = modelTransform.getTransformMat()
+  uniforms.data.worldToViewMat = camera.viewMat
+  uniforms.data.viewToClipMat = camera.projectionMat
+  uniforms.data.mainLightColor = vec3f(1, 0.6, 0.3)
+  uniforms.data.mainLightDirection = vec3f(8, 5, 3).normalize()
+  uniforms.data.ambientLightColor = vec3f(0.1)
   uniforms.upload()
   uniforms.use(shader)
   vao.use()
