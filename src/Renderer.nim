@@ -6,8 +6,6 @@ import ./glad/gl
 import GlUtils, Slangc, Scene
 
 type
-  ColoredVertex = object
-    pos, color: Vec3f
   # Packed pragma might be necessary or more correct for structs passed to GPU?
   Uniforms = object
     mvp: Mat4f
@@ -18,22 +16,24 @@ type
 
   GpuSceneUniforms[T] = object
     cameraPos: Vec3f
-    worldToViewMat, viewToClipMat: Mat4f
+    # Just one model to world transform for now, separate transforms for each model will be needed later
+    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
     dirLight: DirectionalLight
     ambientLightColor: Vec3f
 
 const shadersDir = currentSourcePath().parentDir().parentDir()
 
 var opts = SlangcOptions(
-  inFile: shadersDir / "shaders/HelloTriangle.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
+  inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
 )
 let vertexShaderText = compileShaderOrRaise(opts)
 
 opts = SlangcOptions(
-  inFile: shadersDir / "shaders/HelloTriangle.slang", stage: Fragment, entryPoint: "fragmentMain", target: Glsl
+  inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Fragment, entryPoint: "fragmentMain", target: Glsl
 )
 let fragmentShaderText = compileShaderOrRaise(opts)
 
+let cubeColor = vec3f(0.9)
 var
   # Input
   prevCursorX, prevCursorY: float = 0
@@ -50,24 +50,58 @@ var
   vao: VertexArrayRef
   ebo: ElementBufferRef
 
-  # Model data
+  # Model data (cube with per face normals)
   vertices = @[
-    ColoredVertex(pos: vec3f(0.5, 0.5, 0.0), color: vec3f(1.0, 0.0, 0.0)), # front top right
-    ColoredVertex(pos: vec3f(0.5, -0.5, 0.0), color: vec3f(0.0, 1.0, 0.0)), # front bottom right
-    ColoredVertex(pos: vec3f(-0.5, -0.5, 0.0), color: vec3f(0.0, 0.0, 1.0)), # front bottom left
-    ColoredVertex(pos: vec3f(-0.5,  0.5, 0.0), color: vec3f(0.0, 1.0, 1.0)), # front top left
-    ColoredVertex(pos: vec3f(0.5, 0.5, 1.0), color: vec3f(1.0, 0.0, 0.0)), # back top right
-    ColoredVertex(pos: vec3f(0.5, -0.5, 1.0), color: vec3f(0.0, 1.0, 0.0)), # back bottom right
-    ColoredVertex(pos: vec3f(-0.5, -0.5, 1.0), color: vec3f(0.0, 0.0, 1.0)), # back bottom left
-    ColoredVertex(pos: vec3f(-0.5,  0.5, 1.0), color: vec3f(0.0, 1.0, 1.0)) # back top left
+    # Front face (z = 0.5, normal = +Z)
+    ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
+    ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
+    ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
+
+    # Back face (z = -0.5, normal = -Z)
+    ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
+    ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
+    ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
+
+    # Left face (x = -0.5, normal = -X)
+    ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
+    ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
+    ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
+    ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
+
+    # Right face (x = 0.5, normal = +X)
+    ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
+    ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
+
+    # Top face (y = 0.5, normal = +Y)
+    ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
+    ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
+    ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
+
+    # Bottom face (y = -0.5, normal = -Y)
+    ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
+    ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
+    ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
+    ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, -1, 0))
   ]
+
   indices: seq[GLuint] = @[
-    0, 1, 3,  1, 2, 3, # front
-    0, 4, 1,  1, 4, 5, # right
-    3, 2, 7,  2, 6, 7, # left
-    1, 5, 2,  2, 5, 6, # bottom
-    0, 3, 4,  3, 7, 4, # top
-    4, 7, 5,  5, 7, 6 # back
+    # Front
+    0, 1, 2,  0, 2, 3,
+    # Back
+    4, 6, 5,  4, 7, 6,
+    # Left
+    8, 9, 10,  8, 10, 11,
+    # Right
+    12, 14, 13,  12, 15, 14,
+    # Top
+    16, 18, 17,  16, 19, 18,
+    # Bottom
+    20, 21, 22,  20, 22, 23
   ]
   modelTransform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
 
@@ -112,6 +146,11 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   vao.use()
   vbo.use()
   vao.attachElementBuffer(ebo)
+
+  # Enable backface culling
+  glEnable(GL_CULL_FACE)
+  glCullFace(GL_BACK)
+  glFrontFace(GL_CCW)
 
 proc uninit() =
   vbo.cleanup()
