@@ -70,54 +70,78 @@ proc cleanup*(s: var ShaderRef) =
   s = nil
 proc `=dispose`*(s: var ShaderRef) = s.cleanup()
 
-type ShaderStorageRef*[T] = ref object
+type ShaderDataBufferRef*[T] = ref object
   id*: GLuint
-  storageType: GLenum
   shaderSlots: Table[GLuint, int]
+  bufferType, usageHint: GLenum
   data*: T
 
-proc initShaderStorage*[T](targetShader: ShaderRef, storageType: GLenum, shaderSlot: int, data: Option[T] = T.none): ShaderStorageRef[T] = 
-  result = new ShaderStorageRef[T]
+const supportedBufferTypes = [GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER]
+const validUsageHints = [
+  GL_STREAM_DRAW, GL_STREAM_READ, GL_STREAM_COPY,
+  GL_STATIC_DRAW, GL_STATIC_READ, GL_STATIC_COPY,
+  GL_DYNAMIC_DRAW, GL_DYNAMIC_READ, GL_DYNAMIC_COPY
+]
+
+proc validateEnumsOrRaise(bufferType, usageHint: GLenum) =
+  if bufferType notin supportedBufferTypes:
+    raise newException(
+      Exception, fmt"Unsupported buffer type {bufferType.uint}. This class is for uniform buffers and shader b buffers only."
+    )
+  elif usageHint notin validUsageHints:
+    raise newException(Exception, fmt"Invalid usage hint {usageHint.uint}. Check validUsageHints const for valid usages.")
+
+proc initShaderDataBuffer*[T](
+  targetShader: ShaderRef, shaderSlot: int; bufferType, usageHint: GLenum; data: Option[T] = T.none
+): ShaderDataBufferRef[T] = 
+  validateEnumsOrRaise(bufferType, usageHint)
+
+  result = new ShaderDataBufferRef[T]
+  result.bufferType = bufferType
   result.shaderSlots = initTable[GLuint, int]()
   result.shaderSlots[targetShader.id] = shaderSlot
-  result.storageType = storageType
+  result.usageHint = usageHint
 
   glGenBuffers(1, addr result.id)
-  glBindBuffer(GL_UNIFORM_BUFFER, result.id)
+  glBindBuffer(bufferType, result.id)
   var dataRef: ptr T = nil
   if data.isSome:
     result.data = data.get
     dataRef = addr result.data
-  glBufferData(GL_UNIFORM_BUFFER, sizeof T, dataRef, result.storageType)
-  glBindBufferBase(GL_UNIFORM_BUFFER, shaderSlot, result.id)
+  glBufferData(bufferType, sizeof T, dataRef, result.usageHint)
+  glBindBufferBase(bufferType, shaderSlot, result.id)
 
 # TODO: Add function for associating the UBO with more shaders (for UBOs that get passed between shaders like compute -> vertex/fragment)
 
-proc glBind[T](storage: ShaderStorageRef[T]) = glBindBuffer(GL_UNIFORM_BUFFER, storage.id)
-proc use*[T](storage: ShaderStorageRef[T], shader: ShaderRef) =
-  storage.glBind()
-  let slot = storage.shaderSlots[shader.id]
-  glBindBufferBase(GL_UNIFORM_BUFFER, slot, storage.id)
+proc glBind[T](b: ShaderDataBufferRef[T]) = glBindBuffer(b.bufferType, b.id)
+proc use*[T](b: ShaderDataBufferRef[T], shader: ShaderRef) =
+  b.glBind()
+  let slot = b.shaderSlots[shader.id]
+  glBindBufferBase(b.bufferType, slot, b.id)
 
-proc upload*[T](s: ShaderStorageRef[T], storageType: Option[GLenum] = GLenum.none) =
+proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum] = GLenum.none) =
   s.glBind()
-  let storageType = if storageType.isSome:
-    storageType.get
+  let bufferType = if bufferType.isSome:
+    bufferType.get
   else:
-    s.storageType
-  glBufferData(GL_UNIFORM_BUFFER, sizeof T, addr s.data, storageType)
+    s.bufferType
+  let usageHint = if usageHint.isSome:
+    usageHint.get
+  else:
+    s.usageHint
+  glBufferData(bufferType, sizeof T, addr s.data, usageHint)
 
-proc uploadRegion*[T](storage: ShaderStorageRef[T], offset: int, size: int, regionStartPtr: pointer) =
-  storage.glBind()
-  glBufferSubData(GL_UNIFORM_BUFFER, offset, size, regionStartPtr)
+proc uploadRegion*[T](b: ShaderDataBufferRef[T]; offset, size: int; regionStartPtr: pointer) =
+  b.glBind()
+  glBufferSubData(b.bufferType, offset, size, regionStartPtr)
 
-template uploadField*[T](storage: ShaderStorageRef[T], field: untyped) =
-  storage.uploadRegion(T.offsetOf(field), sizeof storage.data.field, addr storage.data.field)
+template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
+  b.uploadRegion(T.offsetOf(field), sizeof b.data.field, addr b.data.field)
 
-proc cleanup*(s: var ShaderStorageRef) =
+proc cleanup*(s: var ShaderDataBufferRef) =
   glDeleteBuffers(1, addr s.id)
   s = nil
-proc `=dispose`*(s: var ShaderStorageRef) = s.cleanup()
+proc `=dispose`*(s: var ShaderDataBufferRef) = s.cleanup()
 
 type
   InitBuf*[T: object] = tuple[data: seq[T], bufType: GLenum]

@@ -43,7 +43,7 @@ var
   camera: Camera
   cameraOpts: FpCameraOptions
   shader: ShaderRef
-  uniforms: ShaderStorageRef[GpuSceneUniforms]
+  uniforms: ShaderDataBufferRef[GpuSceneUniforms]
   vbo: VertexBufferRef[ColoredVertex]
   vao: VertexArrayRef
   ebo: ElementBufferRef
@@ -135,7 +135,7 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   # Compile and link shader and check errors
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
-  uniforms = initShaderStorage[GpuSceneUniforms](shader, GL_DYNAMIC_DRAW, 0)
+  uniforms = initShaderDataBuffer[GpuSceneUniforms](shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
 
   # Set up OpenGL buffers for passing vertex data to shaders
   vbo = initVertexBuffer (vertices, GL_STATIC_DRAW).some
