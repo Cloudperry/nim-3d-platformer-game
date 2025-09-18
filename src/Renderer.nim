@@ -1,9 +1,9 @@
-import std/[os, strformat, options, math, macros]
-
+import std/[os, strformat, options, math, monotimes]
+import std/times except `getTime`
 import pkg/[glm, glfw]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
-import GlUtils, Slangc, Scene
+import GlUtils, Slangc, Scene, CircularBuffer
 
 type
   # GPU side representation of the scene objects from Scene.nim
@@ -19,7 +19,9 @@ type
     mainLightColor {.align(16).}: Vec3f
     ambientLightColor {.align(16).}: Vec3f
 
-const shadersDir = currentSourcePath().parentDir().parentDir()
+const
+  shadersDir = currentSourcePath().parentDir().parentDir()
+  logPeriod = initDuration(milliseconds = 250)
 
 var opts = SlangcOptions(
   inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
@@ -47,6 +49,12 @@ var
   vbo: VertexBufferRef[ColoredVertex]
   vao: VertexArrayRef
   ebo: ElementBufferRef
+
+  # Performance logging
+  updateTimes, drawTimes, frameTimes: CircularBuffer[1000, Duration]
+  timeSinceLastLog = initDuration()
+  lastLogI = 0
+  lastStatusLineContent = ""
 
   # Model data (cube with per face normals)
   vertices = @[
@@ -103,6 +111,27 @@ var
   ]
   modelTransform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
 
+# Extend this into a small logging library? It could just write the "terminal status line" in the logs normally when isatty(f) is false.
+proc clearLine(f: var File) = f.write "\x1b[2K"
+
+proc writeTerminalStatusLine(f: var File, msg: Option[string] = string.none) = 
+  f.write '\r'
+  f.clearLine()
+
+  let msg = if msg.isSome:
+    msg.get
+  else:
+    lastStatusLineContent
+  f.write msg
+
+  f.flushFile()
+
+proc logMessage(f: var File, msg: string) =
+  f.clearLine()
+  f.write '\r'
+  f.writeLine msg
+  f.writeTerminalStatusLine()
+
 proc updateCameraAspect(win: Window) =
   var (width, height) = glfw.framebufferSize(win)
   var ratio = width / height
@@ -122,7 +151,7 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   if rawMouseMotionSupported() != 0:
     win.rawMouseMotion = true
   else:
-    echo "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
+    stdout.logMessage "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
   monitor = getPrimaryMonitor()
   camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
@@ -191,10 +220,10 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
       let monitorArea = monitor.workArea()
       let monitorMode = monitor.videoMode()
       prevWinProps = (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
-      echo fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
+      stdout.logMessage fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
       win.monitor = (monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)
     else:
-      echo fmt"Going out of fullscreen {(prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)}"
+      stdout.logMessage fmt"Going out of fullscreen {(prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)}"
       win.monitor = (newMonitor(nil), prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)
     fullscreen = not fullscreen
 
@@ -220,6 +249,30 @@ proc draw(win: Window) =
   vao.use()
   glDrawElements(GL_TRIANGLES, indices.len, GL_UNSIGNED_INT, cast[pointer](0))
 
+proc logPerf(update, draw, frame: Duration) =
+  updateTimes.push update
+  drawTimes.push draw
+  frameTimes.push frame
+  timeSinceLastLog += frame
+
+  if timeSinceLastLog >= logPeriod:
+    var updateSum, drawSum, frameTimeSum = initDuration()
+    var count = 0
+    for time in updateTimes.range(lastLogI, updateTimes.i):
+      updateSum += time
+    for time in drawTimes.range(lastLogI, drawTimes.i):
+      drawSum += time
+    for time in frameTimes.range(lastLogI, frameTimes.i):
+      frameTimeSum += time
+      count += 1
+
+    timeSinceLastLog = initDuration()
+    lastLogI = frameTimes.i
+
+    let (updateAvg, drawAvg) = (inMicroseconds(updateSum div count), inMicroseconds(drawSum div count))
+    let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
+    stdout.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}".some
+
 proc main() =
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
@@ -239,18 +292,25 @@ proc main() =
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
 
-  glfw.swapInterval(1)
+  glfw.swapInterval(0)
   init(win, cfg)
 
-  var prevFrameStart = getTime()
+  var prevFrameStart = getMonoTime()
   while not win.shouldClose:
-    let currFrameStart = getTime()
-    let deltaTime = currFrameStart - prevFrameStart
+    let currFrameStart = getMonoTime()
+    let frameDuration = currFrameStart - prevFrameStart
+    let deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
     prevFrameStart = currFrameStart
+    
     update(win, deltaTime)
+    let updateEnd = getMonoTime()
     draw(win)
+    let drawEnd = getMonoTime()
 
     glfw.swapBuffers(win)
+    let currFrameEnd = getMonoTime()
+    logPerf(updateEnd - currFrameStart, drawEnd - updateEnd, currFrameEnd - currFrameStart)
+
     glfw.pollEvents()
 
   uninit()
