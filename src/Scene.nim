@@ -125,7 +125,11 @@ proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
 proc doFirstPersonCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
   var tChanged = false
   if moveDirection != vec3f(0):
-    c.moveLocally(co, moveDirection, dt)
+    # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
+    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
+    if moveDirectionPlane != vec3f(0):
+      c.moveLocally(co, moveDirectionPlane, dt)
+    c.pos.y += moveDirection.y * co.moveSpeed * dt 
     tChanged = true
   if (deltaX, deltaY) != (0.0, 0.0):
     c.rotate(co, deltaX, deltaY)
