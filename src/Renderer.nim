@@ -283,7 +283,7 @@ proc main() =
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
   # Setting to true enables debug logging
-  cfg.debugContext = true
+  cfg.debugContext = not (defined(release) or defined(danger))
 
   var win = newWindow(cfg)
   win.keyCb = keyCb
@@ -292,7 +292,7 @@ proc main() =
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
 
-  glfw.swapInterval(0)
+  glfw.swapInterval(1)
   init(win, cfg)
 
   var prevFrameStart = getMonoTime()
