@@ -135,6 +135,8 @@ proc doFirstPersonCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirect
     c.updateTransform()
 
 # ======================================== Models and scene representation ========================================
+
+# TODO: Proper DAG-based scene graph with model hierarchies
 type 
   ColoredVertex* = object
     pos*, color*, normal*: Vec3f
@@ -166,7 +168,7 @@ proc posUvNorm(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedV
 proc initModel[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()): Model[T] =
   Model(vertices: vertices, indices: indices, transform: transform)
 
-proc initScene[T](cam: Camera, models: seq[Model[T]], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
+proc initScene[T](cam: Camera, models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
   result = Scene(cam: cam, models: models)
   if dirLight.isSome:
     result.dirLight = dirLight

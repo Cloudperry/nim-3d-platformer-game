@@ -1,4 +1,4 @@
-import std/[tables, strformat, options, sequtils, bitops]
+import std/[tables, strformat, options, sequtils, bitops, macros]
 import ./glad/gl
 import pkg/glm
 
@@ -134,9 +134,11 @@ proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum]
 proc uploadRegion*[T](b: ShaderDataBufferRef[T]; offset, size: int; regionStartPtr: pointer) =
   b.glBind()
   glBufferSubData(b.bufferType, offset, size, regionStartPtr)
-
 template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
   b.uploadRegion(T.offsetOf(field), sizeof b.data.field, addr b.data.field)
+template setField*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) =
+  b.data.field = value
+  b.uploadField(field)
 
 proc cleanup*(s: var ShaderDataBufferRef) =
   glDeleteBuffers(1, addr s.id)

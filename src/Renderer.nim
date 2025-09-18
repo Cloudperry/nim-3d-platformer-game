@@ -1,4 +1,4 @@
-import std/[os, strformat, options, math]
+import std/[os, strformat, options, math, macros]
 
 import pkg/[glm, glfw]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
@@ -136,6 +136,9 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
   uniforms = initShaderDataBuffer[GpuSceneUniforms](shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  uniforms.setField(mainLightColor, vec3f(1, 0.6, 0.3)) 
+  uniforms.setField(mainLightDirection, vec3f(8, 5, 3).normalize())
+  uniforms.setField(ambientLightColor, vec3f(0.1)) 
 
   # Set up OpenGL buffers for passing vertex data to shaders
   vbo = initVertexBuffer (vertices, GL_STATIC_DRAW).some
@@ -210,13 +213,9 @@ proc draw(win: Window) =
   glClear(GL_COLOR_BUFFER_BIT)
 
   shader.use()
-  uniforms.data.modelToWorldMat = modelTransform.getTransformMat()
-  uniforms.data.worldToViewMat = camera.viewMat
-  uniforms.data.viewToClipMat = camera.projectionMat
-  uniforms.data.mainLightColor = vec3f(1, 0.6, 0.3)
-  uniforms.data.mainLightDirection = vec3f(8, 5, 3).normalize()
-  uniforms.data.ambientLightColor = vec3f(0.1)
-  uniforms.upload()
+  uniforms.setField(modelToWorldMat, modelTransform.getTransformMat())
+  uniforms.setField(worldToViewMat, camera.viewMat)
+  uniforms.setField(viewToClipMat, camera.projectionMat) 
   uniforms.use(shader)
   vao.use()
   glDrawElements(GL_TRIANGLES, indices.len, GL_UNSIGNED_INT, cast[pointer](0))
