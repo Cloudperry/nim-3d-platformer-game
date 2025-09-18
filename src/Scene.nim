@@ -117,7 +117,7 @@ proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
   c.pitch += deltaPitch
 
   # Prevent vertical flipping
-  c.pitch = c.pitch.clamp(-PI / 2, PI / 2)
+  c.pitch = c.pitch.clamp(-PI / 2 + PI / 256, PI / 2 - PI / 256)
   # Keep yaw in -180 .. 180 degrees
   if c.yaw > PI: c.yaw -= 2 * PI
   if c.yaw < -PI: c.yaw += 2 * PI
