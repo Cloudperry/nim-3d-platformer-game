@@ -1,7 +1,8 @@
-import std/[tables, strformat, options, sequtils, bitops, macros]
+import std/[tables, strformat, options, sequtils, bitops, sugar, macros]
 import ./glad/gl
 import pkg/glm
 
+# ======================================== Shader class and compilation error handling ========================================
 proc checkError*(shader: GLuint) =
   var code: GLint
   glGetShaderiv(shader, GL_COMPILE_STATUS, addr code)
@@ -70,6 +71,82 @@ proc cleanup*(s: var ShaderRef) =
   s = nil
 proc `=dispose`*(s: var ShaderRef) = s.cleanup()
 
+# ======================================== Automatic GPU buffer alignment generator ========================================
+const std140Alignment* = collect:
+  for (list, align) in [
+    # Types aligned to 4 bytes
+    (@[GLfloat.getTypeImpl().repr, GLint.getTypeImpl().repr,
+       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr], 4),
+    # Types aligned to 8 bytes
+    (@[Vec2f.getTypeImpl().repr, Vec2i.getTypeImpl().repr,
+       Vec2ui.getTypeImpl().repr, Vec2b.getTypeImpl().repr,
+       GLdouble.getTypeImpl().repr], 8),
+    # Types aligned to 16 bytes
+    (@[Vec3f.getTypeImpl().repr, Vec3i.getTypeImpl().repr,
+       Vec3ui.getTypeImpl().repr, Vec3b.getTypeImpl().repr,
+       Vec4f.getTypeImpl().repr, Vec4i.getTypeImpl().repr,
+       Vec4ui.getTypeImpl().repr, Vec4b.getTypeImpl().repr,
+       Mat2f.getTypeImpl().repr, Mat3f.getTypeImpl().repr,
+       Mat4f.getTypeImpl().repr, Mat2d.getTypeImpl().repr], 16),
+    (@[Mat3d.getTypeImpl().repr, Mat4d.getTypeImpl().repr], 32),
+
+  ]:
+    for t in list:
+      {t: align}
+
+proc desym(n: NimNode) =
+  for i, x in n:
+    case x.kind
+    of nnkSym:
+      n[i] = ident($x)
+    else:
+      desym(x)
+
+macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untyped =
+  for n in body:
+    if n.kind == nnkTypeSection:
+      for typeDef in n:
+        if typeDef.kind == nnkTypeDef:
+          let typeName = $typeDef[0]
+          let typeNode = typeDef[2]
+          if typeNode.kind == nnkObjectTy:
+
+            when defined(glLayoutGenDbg):
+              echo fmt"Found object type `{typeName}`"
+
+            if typeNode[2].kind == nnkRecList:
+              let fields = typeNode[2]
+              for fieldDefSection in fields:
+                if fieldDefSection.kind == nnkIdentDefs:
+                  let typeNode = fieldDefSection[^2]
+                  let typeImplStr = typeNode.getTypeImpl().repr
+                  # TODO: Add error for types that don't have alignment defined in the table
+                  let alignment = alignTable[typeImplStr]
+                  
+                  for i in 0 .. fieldDefSection.len - 3:
+                    if fieldDefSection[i].kind == nnkPragmaExpr:
+                      echo fmt"OpenGL object error: Invalid field `{toStrLit(fieldDefSection[i])}` (with node {fieldDefSection[i].kind})"
+                      continue
+                    when defined(glLayoutGenDbg):
+                      echo fmt"Found field `{fieldDefSection[i]}` that will get aligned to {alignment}"
+
+                    fieldDefSection[i] = nnkPragmaExpr.newTree(
+                      fieldDefSection[i],
+                      nnkPragma.newTree(
+                        nnkCall.newTree(
+                          newIdentNode("align"),
+                          newLit(alignment)
+                        )
+                      )
+                    )
+                else:
+                  echo &"OpenGL object Error: Invalid field {{\n{toStrLit(fieldDefSection)}\n}} (with node {fieldDefSection.kind})"
+
+  result = body # Pass through with pragmas added
+  result.desym()
+  when defined(glLayoutGenDbg): echo &"Generated objects with alignment {{\n{toStrLit(result)}\n\n}}"
+
+# ======================================== UBO/SSBO class ========================================
 type ShaderDataBufferRef*[T] = ref object
   id*: GLuint
   shaderSlots: Table[GLuint, int]
@@ -169,6 +246,7 @@ proc upload*[T: object](b: var VertexBufferRef[T], data: seq[T], bufferType: GLe
   else:
     raise newException(Exception, "Can't upload empty buffer")
 
+# ======================================== VBO class ========================================
 # TODO: Add more vector types (ints) and add normalization
 proc initVertexBuffer*[T: object](
   initBufOpt: Option[InitBuf[T]] = InitBuf[T].none, treatInvalidTypesAsPadding: bool = false,
@@ -284,6 +362,7 @@ proc cleanup*(b: var ElementBufferRef) =
   b = nil
 proc `=dispose`*(b: var ElementBufferRef) = b.cleanup()
 
+# ======================================== VAO class ========================================
 type
   VertexArrayRef* = ref object
     id*: GLuint
@@ -314,6 +393,7 @@ proc use*(a: VertexArrayRef) =
   if a.attachedElementBuffer != nil:
     a.attachedElementBuffer.glBind()
 
+# ======================================== OpenGL error logging setup ========================================
 proc glDebugOutput(
   source: GLenum, glType: GLenum, id: GLuint, severity: GLenum, length: GLsizei,
   message: ptr GLchar, userParam: pointer

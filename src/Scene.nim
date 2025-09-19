@@ -99,7 +99,7 @@ proc getLocalDirections(c: Camera): tuple[forward, right, up: Vec3f] =
   return (forward, right, up)
 
 proc getCameraViewMat(c: Camera): Mat4f =
-  let (forward, right, up) = c.getLocalDirections()
+  let (forward, _, up) = c.getLocalDirections()
   return lookAt(c.pos, c.pos + forward, up)
 proc updateTransform*(c: var Camera) = c.viewMat = c.getCameraViewMat()
 

@@ -5,19 +5,20 @@ from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
 import GlUtils, Slangc, Scene, CircularBuffer
 
-type
-  # GPU side representation of the scene objects from Scene.nim
-  GpuSceneStorage[T] = object
-    discard
+makeGlObjects(std140Alignment):
+  type
+    # GPU side representation of the scene objects from Scene.nim
+    # GpuSceneStorage[T] = object
+    #  discard
 
-  GpuSceneUniforms {.packed.} = object
-    # TODO: Make a macro that does OpenGL std140 padding automatically. This obj has manual padding that is very ugly.
-    cameraPos: Vec3f
-    # Just one model to world transform for now, separate transforms for each model will be needed later
-    modelToWorldMat {.align(16).}, worldToViewMat, viewToClipMat: Mat4f 
-    mainLightDirection: Vec3f
-    mainLightColor {.align(16).}: Vec3f
-    ambientLightColor {.align(16).}: Vec3f
+    GpuSceneUniforms = object
+      # TODO: Make a macro that does OpenGL std140 padding automatically. This obj has manual padding that is very ugly.
+      cameraPos: Vec3f
+      # Just one model to world transform for now, separate transforms for each model will be needed later
+      modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
+      mainLightDirection: Vec3f
+      mainLightColor: Vec3f
+      ambientLightColor: Vec3f
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir()
@@ -165,9 +166,9 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
   uniforms = initShaderDataBuffer[GpuSceneUniforms](shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  uniforms.setField(mainLightColor, vec3f(1, 0.6, 0.3)) 
+  uniforms.setField(mainLightColor, vec3f(1, 0.6, 0.3))
   uniforms.setField(mainLightDirection, vec3f(8, 5, 3).normalize())
-  uniforms.setField(ambientLightColor, vec3f(0.1)) 
+  uniforms.setField(ambientLightColor, vec3f(0.1))
 
   # Set up OpenGL buffers for passing vertex data to shaders
   vbo = initVertexBuffer (vertices, GL_STATIC_DRAW).some
@@ -244,7 +245,7 @@ proc draw(win: Window) =
   shader.use()
   uniforms.setField(modelToWorldMat, modelTransform.getTransformMat())
   uniforms.setField(worldToViewMat, camera.viewMat)
-  uniforms.setField(viewToClipMat, camera.projectionMat) 
+  uniforms.setField(viewToClipMat, camera.projectionMat)
   uniforms.use(shader)
   vao.use()
   glDrawElements(GL_TRIANGLES, indices.len, GL_UNSIGNED_INT, cast[pointer](0))
