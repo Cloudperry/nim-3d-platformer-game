@@ -12,7 +12,6 @@ makeGlObjects(std140Alignment):
     #  discard
 
     GpuSceneUniforms = object
-      # TODO: Make a macro that does OpenGL std140 padding automatically. This obj has manual padding that is very ugly.
       cameraPos: Vec3f
       # Just one model to world transform for now, separate transforms for each model will be needed later
       modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
