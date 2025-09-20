@@ -166,15 +166,15 @@ type
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
 
-proc posColorNorm(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
-proc posUvNorm(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
+proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
+proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
 
-proc initModel[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()): Model[T] =
-  Model(vertices: vertices, indices: indices, transform: transform)
+proc initModel*[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()): Model[T] =
+  Model[T](vertices: vertices, indices: indices, transform: transform)
 
-proc initScene[T](cam: Camera, models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
-  result = Scene(cam: cam, models: models)
+proc initScene*[T](cam: Camera, models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
+  result = Scene[T](cam: cam, models: models)
   if dirLight.isSome:
-    result.dirLight = dirLight
+    result.dirLight = dirLight.get
   if ambientLight.isSome:
-    result.ambientLightColor = ambientLight
+    result.ambientLightColor = ambientLight.get

@@ -34,6 +34,8 @@ converter toGlInt*(n: int): GLint = GLint(n)
 converter toCstringArray(s: string): cstringArray {.inline.} =
   let arr = [cstring(s)]
   return cast[cstringArray](addr arr)
+converter toIndexBuffer*(indices: seq[int]): seq[GLuint] =
+  indices.mapIt(it.GLuint)
 
 type ShaderRef* = ref object
   id*: GLuint
