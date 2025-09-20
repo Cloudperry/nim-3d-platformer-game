@@ -1,6 +1,6 @@
 import std/[os, strformat, options, math, monotimes]
 import std/times except `getTime`
-import pkg/[glm, glfw]
+import pkg/[glm, glfw, cligen]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
 import GlUtils, Slangc, Scene, CircularBuffer
@@ -21,21 +21,14 @@ makeGlObjects(std140Alignment):
       ambientLightColor: Vec3f
 
 const
+  cubeColor = vec3f(0.9)
   shadersDir = currentSourcePath().parentDir().parentDir()
   logPeriod = initDuration(milliseconds = 250)
 
-var opts = SlangcOptions(
-  inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
-)
-let vertexShaderText = compileShaderOrRaise(opts)
-
-opts = SlangcOptions(
-  inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Fragment, entryPoint: "fragmentMain", target: Glsl
-)
-let fragmentShaderText = compileShaderOrRaise(opts)
-
-let cubeColor = vec3f(0.9)
 var
+  # Shaders
+  vertexShaderText, fragmentShaderText: string
+
   # Input
   prevCursorX, prevCursorY: float = 0
 
@@ -274,7 +267,20 @@ proc logPerf(update, draw, frame: Duration) =
     let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
     stdout.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}".some
 
-proc main() =
+proc compileShaders(slangPath = "") =
+  var opts = SlangcOptions(
+    inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
+  )
+  if slangPath.len > 0: opts.slangPath = slangPath
+  vertexShaderText = compileShaderOrRaise(opts)
+
+  opts.stage = Fragment
+  opts.entryPoint = "fragmentMain"
+  fragmentShaderText = compileShaderOrRaise(opts)
+
+proc main(slangPath: string = "") =
+  compileShaders(slangPath)
+
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
   cfg.size = (w: 640, h: 480)
@@ -317,4 +323,5 @@ proc main() =
   uninit()
   glfw.terminate()
 
-main()
+when isMainModule:
+  dispatch main

@@ -1,4 +1,4 @@
-import std/[osproc, strformat, strutils]
+import std/[os, osproc, strformat, strutils]
 
 type
   ShaderStage* = enum
@@ -7,6 +7,7 @@ type
     Glsl = "glsl", SpirV = "spirv"
   SlangcOptions* = object
     inFile*, entryPoint*, outFile*: string
+    slangPath*: string = "/opt/shader-slang-bin/bin"
     target*: TargetFormat
     stage*: ShaderStage
 
@@ -21,13 +22,15 @@ proc fillDefaultOpts(o: var SlangcOptions) =
     let inputName = o.inFile.split(".")
     o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target}"
 
+# TODO: Check if Slang is already in PATH and use it if it is
 proc makeSlangCmd(o: var SlangcOptions): string =
   o.fillDefaultOpts()
   let entryPointOptArg = if o.entryPoint.len > 0:
     fmt" -entry {o.entryPoint}"
   else:
     ""
-  return fmt"/opt/shader-slang-bin/bin/slangc {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
+  let slangBin = o.slangPath / "slangc"
+  return fmt"{slangBin} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
 
 proc compileShaderOrRaise*(o: var SlangcOptions): string =
   let cmdRes = o.makeSlangCmd().execCmdEx()
