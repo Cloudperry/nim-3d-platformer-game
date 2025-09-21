@@ -140,6 +140,10 @@ proc init(win: Window) =
   glCullFace(GL_BACK)
   glFrontFace(GL_CCW)
 
+  # Enable depth buffer to for correct occlusion when rendering multiple objects 
+  glEnable(GL_DEPTH_TEST)
+  glDepthFunc(GL_LESS)
+
 proc uninit() =
   for i in 0 .. vertexArrays.high:
     vertexBuffers[i].cleanup()
@@ -205,7 +209,7 @@ proc setUniforms(c: Camera) =
 
 proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
-  glClear(GL_COLOR_BUFFER_BIT)
+  glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
   shader.use()
   uniforms.use(shader)
@@ -262,6 +266,7 @@ proc main(slangPath: string = "") =
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
   cfg.debugContext = not (defined(release) or defined(danger))
+  cfg.bits.depth = 24.some
 
   # GLFW init that has to be done after window creation
   var win = newWindow(cfg)
