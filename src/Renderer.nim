@@ -3,7 +3,7 @@ import std/times except `getTime`
 import pkg/[glm, glfw, cligen]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
-import GlUtils, Slangc, Scene, CircularBuffer
+import GlUtils, Slangc, Scene, CircularBuffer, Shapes
 
 makeGlObjects(std140Alignment):
   type
@@ -20,9 +20,14 @@ makeGlObjects(std140Alignment):
       ambientLightColor: Vec3f
 
 const
-  cubeColor = vec3f(0.9)
+  cubeColor = vec3f(1.0)
   shadersDir = currentSourcePath().parentDir().parentDir()
   logPeriod = initDuration(milliseconds = 250)
+
+let
+  cube = makeCube(vec3f(1))
+  pyramid = makePyramid(vec3f(1))
+  sphere = makeSphere(0.5, 16, 16, vec3f(1))
 
 var
   # Shaders
@@ -39,9 +44,9 @@ var
   cameraOpts: FpCameraOptions
   shader: ShaderRef
   uniforms: ShaderDataBufferRef[GpuSceneUniforms]
-  vbo: VertexBufferRef[ColoredVertex]
-  vao: VertexArrayRef
-  ebo: ElementBufferRef
+  vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
+  elementBuffers: seq[ElementBufferRef]
+  vertexArrays: seq[VertexArrayRef]
 
   # Performance logging
   updateTimes, drawTimes, frameTimes: CircularBuffer[1000, Duration]
@@ -49,64 +54,19 @@ var
   lastLogI = 0
   lastStatusLineContent = ""
 
-# Model data (cube with per face normals)
-var
-  model = initModel(
-    vertices = @[ 
-      # Front face (z = 0.5, normal = +Z)
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 0, 1)),
-
-      # Back face (z = -0.5, normal = -Z)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 0, -1)),
-
-      # Left face (x = -0.5, normal = -X)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(-1, 0, 0)),
-
-      # Right face (x = 0.5, normal = +X)
-      ColoredVertex(pos: vec3f(0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(1, 0, 0)),
-
-      # Top face (y = 0.5, normal = +Y)
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: cubeColor, normal: vec3f(0, 1, 0)),
-
-      # Bottom face (y = -0.5, normal = -Y)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: cubeColor, normal: vec3f(0, -1, 0))
-    ],
-    indices = @[
-      # Front
-      0, 1, 2,  0, 2, 3,
-      # Back
-      4, 6, 5,  4, 7, 6,
-      # Left
-      8, 9, 10,  8, 10, 11,
-      # Right
-      12, 14, 13,  12, 15, 14,
-      # Top
-      16, 18, 17,  16, 19, 18,
-      # Bottom
-      20, 21, 22,  20, 22, 23
-    ],
-    transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
+  cubeModel = initModel(
+    cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
+  )
+  pyramidModel = initModel(
+    pyramid.vertices, pyramid.indices, transform = Transform(pos: vec3f(-2, 0, -2), scale: vec3f(1, 1, 1))
+  )
+  sphereModel = initModel(
+    sphere.vertices, sphere.indices, transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1))
   )
   scene = initScene(
-    camera, @[model], DirectionalLight(direction: vec3f(8, 5, 3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
+    camera,
+    @[cubeModel, pyramidModel, sphereModel],
+    DirectionalLight(direction: vec3f(8, 5, 3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
     vec3f(0.1).some
   )
 
@@ -140,19 +100,25 @@ proc updateCameraAspect(win: Window) =
 
   glViewport(0, 0, width, height)
 
-proc init(win: Window, cfg: OpenglWindowConfig) =
-  if cfg.debugContext:
-    setupGlDebugLogging()
+proc makeGlBuffers[T](s: Scene[T]) =
+  vertexBuffers.setLen s.models.len
+  elementBuffers.setLen s.models.len
+  vertexArrays.setLen s.models.len
 
-  win.pos = (150, 100)
-  win.aspectRatio = (3, 2)
-  win.cursorMode = cmDisabled
-  if rawMouseMotionSupported() != 0:
-    win.rawMouseMotion = true
-  else:
-    stdout.logMessage "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
+  for i, model in s.models:
+    vertexBuffers[i] = initVertexBuffer (model.vertices, GL_STATIC_DRAW).some
+    elementBuffers[i] = initElementBuffer (model.indices, GL_STATIC_DRAW).some
+    vertexArrays[i] = initVertexArray()
+    vertexArrays[i].use()
+    vertexBuffers[i].use()
+    vertexArrays[i].attachElementBuffer(elementBuffers[i])
 
-  monitor = getPrimaryMonitor()
+proc setSceneUniforms[T](s: Scene[T]) =
+  uniforms.setField(mainLightDirection, s.dirLight.direction)
+  uniforms.setField(mainLightColor, s.dirLight.color)
+  uniforms.setField(ambientLightColor, s.ambientLightColor)
+
+proc init(win: Window) =
   camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
   camera.pos = vec3f(0, 0, 0)
   camera.updateTransform()
@@ -164,17 +130,10 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   shader = initShaderProg(vertexShaderText, fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
   uniforms = initShaderDataBuffer[GpuSceneUniforms](shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  uniforms.setField(mainLightColor, vec3f(1, 0.6, 0.3))
-  uniforms.setField(mainLightDirection, vec3f(8, 5, 3).normalize())
-  uniforms.setField(ambientLightColor, vec3f(0.1))
 
   # Set up OpenGL buffers for passing vertex data to shaders
-  vbo = initVertexBuffer (scene.models[0].vertices, GL_STATIC_DRAW).some
-  ebo = initElementBuffer (scene.models[0].indices, GL_STATIC_DRAW).some
-  vao = initVertexArray()
-  vao.use()
-  vbo.use()
-  vao.attachElementBuffer(ebo)
+  scene.makeGlBuffers()
+  scene.setSceneUniforms()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
@@ -182,9 +141,10 @@ proc init(win: Window, cfg: OpenglWindowConfig) =
   glFrontFace(GL_CCW)
 
 proc uninit() =
-  vbo.cleanup()
-  ebo.cleanup()
-  vao.cleanup()
+  for i in 0 .. vertexArrays.high:
+    vertexBuffers[i].cleanup()
+    elementBuffers[i].cleanup()
+    vertexArrays[i].cleanup()
   uniforms.cleanup()
   shader.cleanup()
 
@@ -236,17 +196,25 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
 proc sizeCb(win: Window; size: tuple[w, h: int32]) =
   win.updateCameraAspect()
 
+proc setUniforms(m: Model) =
+  uniforms.setField(modelToWorldMat, m.transform.getTransformMat())
+
+proc setUniforms(c: Camera) =
+  uniforms.setField(worldToViewMat, c.viewMat)
+  uniforms.setField(viewToClipMat, c.projectionMat)
+
 proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
 
   shader.use()
-  uniforms.setField(modelToWorldMat, scene.models[0].transform.getTransformMat())
-  uniforms.setField(worldToViewMat, camera.viewMat)
-  uniforms.setField(viewToClipMat, camera.projectionMat)
   uniforms.use(shader)
-  vao.use()
-  glDrawElements(GL_TRIANGLES, scene.models[0].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
+  camera.setUniforms()
+
+  for i in 0 .. vertexArrays.high:
+    vertexArrays[i].use()
+    scene.models[i].setUniforms()
+    glDrawElements(GL_TRIANGLES, scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
 
 proc logPerf(update, draw, frame: Duration) =
   updateTimes.push update
@@ -257,11 +225,9 @@ proc logPerf(update, draw, frame: Duration) =
   if timeSinceLastLog >= logPeriod:
     var updateSum, drawSum, frameTimeSum = initDuration()
     var count = 0
-    for time in updateTimes.range(lastLogI, updateTimes.i):
-      updateSum += time
-    for time in drawTimes.range(lastLogI, drawTimes.i):
-      drawSum += time
-    for time in frameTimes.range(lastLogI, frameTimes.i):
+    for time in updateTimes.range(lastLogI, updateTimes.i): updateSum += time
+    for time in drawTimes.range(lastLogI, drawTimes.i): drawSum += time
+    for time in frameTimes.range(lastLogI, frameTimes.i): 
       frameTimeSum += time
       count += 1
 
@@ -286,6 +252,7 @@ proc compileShaders(slangPath = "") =
 proc main(slangPath: string = "") =
   compileShaders(slangPath)
 
+  # GLFW window and OpenGL context init
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
   cfg.size = (w: 640, h: 480)
@@ -294,18 +261,29 @@ proc main(slangPath: string = "") =
   cfg.version = glv46
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
-  # Setting to true enables debug logging
   cfg.debugContext = not (defined(release) or defined(danger))
 
+  # GLFW init that has to be done after window creation
   var win = newWindow(cfg)
-  win.keyCb = keyCb
-  win.windowSizeCb = sizeCb
-
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
 
+  win.keyCb = keyCb
+  win.windowSizeCb = sizeCb
+  win.pos = (150, 100)
+  win.aspectRatio = (3, 2)
+  win.cursorMode = cmDisabled
+  monitor = getPrimaryMonitor()
+  if rawMouseMotionSupported() != 0:
+    win.rawMouseMotion = true
+  else:
+    stdout.logMessage "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
+
+  if cfg.debugContext: # Enable debug logging when using an OpenGL debug context
+    setupGlDebugLogging()
+
   glfw.swapInterval(1)
-  init(win, cfg)
+  init(win)
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
