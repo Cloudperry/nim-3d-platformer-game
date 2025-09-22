@@ -1,4 +1,4 @@
-import std/[os, strformat, options, math, monotimes, sequtils]
+import std/[os, strformat, options, math, monotimes, sequtils, importutils, sugar]
 import std/times except `getTime`
 import pkg/[glm, glfw, cligen]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
@@ -19,9 +19,13 @@ makeGlObjects(std140Alignment):
       mainLightColor: Vec3f
       ambientLightColor: Vec3f
 
+type
+  RendererMode = enum
+    Rasterizer, SdfRenderer
+
 const
   cubeColor = vec3f(1.0)
-  shadersDir = currentSourcePath().parentDir().parentDir()
+  shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
   logPeriod = initDuration(milliseconds = 250)
 
 let
@@ -91,6 +95,7 @@ proc logMessage(f: var File, msg: string) =
   f.writeLine msg
   f.writeTerminalStatusLine()
 
+# ======================================== Rasterizer ========================================
 proc updateCameraAspect(win: Window) =
   var (width, height) = glfw.framebufferSize(win)
   var ratio = width / height
@@ -118,7 +123,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   uniforms.setField(mainLightColor, s.dirLight.color)
   uniforms.setField(ambientLightColor, s.ambientLightColor)
 
-proc init(win: Window) =
+proc initRasterizer(win: Window) =
   camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
   camera.pos = vec3f(0, 0, 0)
   camera.updateTransform()
@@ -144,7 +149,7 @@ proc init(win: Window) =
   glEnable(GL_DEPTH_TEST)
   glDepthFunc(GL_LESS)
 
-proc uninit() =
+proc uninitRasterizer() =
   for i in 0 .. vertexArrays.high:
     vertexBuffers[i].cleanup()
     elementBuffers[i].cleanup()
@@ -152,7 +157,7 @@ proc uninit() =
   uniforms.cleanup()
   shader.cleanup()
 
-proc update(win: Window, deltaTime: float) =
+proc updateRasterizer(win: Window, deltaTime: float) =
   # Keyboard input
   var moveDirection = vec3f(0)
   if win.isKeyDown(keyComma):
@@ -174,6 +179,28 @@ proc update(win: Window, deltaTime: float) =
 
   camera.doFirstPersonCameraMovement(cameraOpts, moveDirection, cursorDeltaX, cursorDeltaY, deltaTime)
 
+proc setUniforms(m: Model) =
+  uniforms.setField(modelToWorldMat, m.transform.getTransformMat())
+
+proc setUniforms(c: Camera) =
+  uniforms.setField(worldToViewMat, c.viewMat)
+  uniforms.setField(viewToClipMat, c.projectionMat)
+
+proc drawRasterizer(win: Window) =
+  glClearColor(0.2, 0.3, 0.3, 1.0)
+  glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+
+  shader.use()
+  uniforms.use(shader)
+  camera.setUniforms()
+
+  for i in 0 .. vertexArrays.high:
+    vertexArrays[i].use()
+    scene.models[i].setUniforms()
+    glDrawElements(GL_TRIANGLES, scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
+
+proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect()
+
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
     win.shouldClose = true
@@ -190,35 +217,11 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
       win.monitor = (newMonitor(nil), prevWinProps.x, prevWinProps.y, prevWinProps.w, prevWinProps.h, prevWinProps.refreshRate)
     fullscreen = not fullscreen
 
-#[ 
-Would be nice to keep track of the monitor the window is on, but on Wayland, win.monitor seems to return null...
-
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
-  monitor = win.monitor
-]#
-
-proc sizeCb(win: Window; size: tuple[w, h: int32]) =
-  win.updateCameraAspect()
-
-proc setUniforms(m: Model) =
-  uniforms.setField(modelToWorldMat, m.transform.getTransformMat())
-
-proc setUniforms(c: Camera) =
-  uniforms.setField(worldToViewMat, c.viewMat)
-  uniforms.setField(viewToClipMat, c.projectionMat)
-
-proc draw(win: Window) =
-  glClearColor(0.2, 0.3, 0.3, 1.0)
-  glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-
-  shader.use()
-  uniforms.use(shader)
-  camera.setUniforms()
-
-  for i in 0 .. vertexArrays.high:
-    vertexArrays[i].use()
-    scene.models[i].setUniforms()
-    glDrawElements(GL_TRIANGLES, scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
+  let newMonitor = win.monitor
+  privateAccess(newMonitor.type)
+  if newMonitor.handle != nil: # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
+    monitor = newMonitor
 
 proc logPerf(update, draw, frame: Duration) =
   updateTimes.push update
@@ -242,10 +245,12 @@ proc logPerf(update, draw, frame: Duration) =
     let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
     stdout.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}".some
 
-proc compileShaders(slangPath = "") =
-  var opts = SlangcOptions(
-    inFile: shadersDir / "shaders/RasterizedRenderer.slang", stage: Vertex, entryPoint: "vertexMain", target: Glsl
-  )
+proc compileShaders(slangPath = "", mode: RendererMode) =
+  let shaderFile = case mode
+  of Rasterizer: "RasterizedRenderer.slang"
+  of SdfRenderer: "SdfRenderer.slang"
+  
+  var opts = SlangcOptions(inFile: shadersDir / shaderFile, stage: Vertex, entryPoint: "vertexMain", target: Glsl)
   if slangPath.len > 0: opts.slangPath = slangPath
   vertexShaderText = compileShaderOrRaise(opts)
 
@@ -253,9 +258,7 @@ proc compileShaders(slangPath = "") =
   opts.entryPoint = "fragmentMain"
   fragmentShaderText = compileShaderOrRaise(opts)
 
-proc main(slangPath: string = "") =
-  compileShaders(slangPath)
-
+proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
@@ -266,40 +269,46 @@ proc main(slangPath: string = "") =
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
   cfg.debugContext = not (defined(release) or defined(danger))
-  cfg.bits.depth = 24.some
+  if mode == Rasterizer:
+    cfg.bits.depth = 24.some
 
   # GLFW init that has to be done after window creation
   var win = newWindow(cfg)
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
+  if cfg.debugContext: # Enable debug logging when using an OpenGL debug context
+    setupGlDebugLogging()
 
   win.keyCb = keyCb
-  win.windowSizeCb = sizeCb
+  case mode
+  of Rasterizer: win.windowSizeCb = sizeCbRasterizer
+  of SdfRenderer: discard
+  win.windowPositionCb = positionCb
   win.pos = (150, 100)
   win.aspectRatio = (3, 2)
   win.cursorMode = cmDisabled
   monitor = getPrimaryMonitor()
+
   if rawMouseMotionSupported() != 0:
     win.rawMouseMotion = true
   else:
     stdout.logMessage "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
-  if cfg.debugContext: # Enable debug logging when using an OpenGL debug context
-    setupGlDebugLogging()
-
   glfw.swapInterval(1)
-  init(win)
+  return (win, cfg)
 
+# This is done to avoid branching within the main loop, while still allowing runtime selection between rasterizer and SDF renderer
+proc updateDrawLoop(win: Window, deltaTime: var float; updateProc, drawProc: proc) =
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
-    let deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
+    deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
     prevFrameStart = currFrameStart
     
-    update(win, deltaTime)
+    updateProc()
     let updateEnd = getMonoTime()
-    draw(win)
+    drawProc()
     let drawEnd = getMonoTime()
 
     glfw.swapBuffers(win)
@@ -308,7 +317,27 @@ proc main(slangPath: string = "") =
 
     glfw.pollEvents()
 
-  uninit()
+proc main(slangPath: string = "", mode: RendererMode = Rasterizer) =
+  compileShaders(slangPath, mode)
+
+  var (win, cfg) = initGlfwAndGlad(mode)
+  case mode
+  of Rasterizer: initRasterizer(win)
+  of SdfRenderer: discard
+
+  var deltaTime: float
+  case mode
+  of Rasterizer: 
+    updateDrawLoop(
+      win, deltaTime,
+      () => drawRasterizer(win),
+      () => updateRasterizer(win, deltaTime)
+    ) 
+  of SdfRenderer: discard
+
+  case mode
+  of Rasterizer: uninitRasterizer()
+  of SdfRenderer: discard
   glfw.terminate()
 
 when isMainModule:
