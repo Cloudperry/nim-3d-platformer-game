@@ -138,8 +138,7 @@ proc doFirstPersonCameraMovement*(c: var RasterizerCamera, co: FpCameraOptions, 
   if tChanged:
     c.updateTransform()
 
-# ======================================== Models and scene representation ========================================
-
+# ======================================== Models and rasterized scene representation ========================================
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
   ColoredVertex* = object

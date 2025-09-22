@@ -31,6 +31,8 @@ VertexOutput vertexMain(VertexInput input) {
   return output;
 }
 
+// Check the fragment shader code to make sure it matches a basic raytraced camera setup. This was done very quickly to
+// see if a fullscreen shader works.
 [shader("fragment")]
 FragmentOutput fragmentMain(VertexOutput input) {
   FragmentOutput output;

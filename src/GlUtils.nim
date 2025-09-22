@@ -224,6 +224,7 @@ proc cleanup*(s: var ShaderDataBufferRef) =
   s = nil
 proc `=dispose`*(s: var ShaderDataBufferRef) = s.cleanup()
 
+# ======================================== VBO class ========================================
 type
   InitBuf*[T: object] = tuple[data: seq[T], bufType: GLenum]
   
@@ -248,7 +249,6 @@ proc upload*[T: object](b: var VertexBufferRef[T], data: seq[T], bufferType: GLe
   else:
     raise newException(Exception, "Can't upload empty buffer")
 
-# ======================================== VBO class ========================================
 # TODO: Add more vector types (ints) and add normalization
 proc initVertexBuffer*[T: object](
   initBufOpt: Option[InitBuf[T]] = InitBuf[T].none, treatInvalidTypesAsPadding: bool = false,

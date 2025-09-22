@@ -5,24 +5,6 @@ from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
 import GlUtils, Slangc, Scene, Logger, Shapes
 
-makeGlObjects(std140Alignment):
-  type
-    # GPU side representation of the scene objects from Scene.nim
-    # GpuSceneStorage[T] = object
-    #  discard
-
-    GpuSceneUniforms = object
-      cameraPos: Vec3f
-      # Just one model to world transform for now, separate transforms for each model will be needed later
-      modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
-      mainLightDirection: Vec3f
-      mainLightColor: Vec3f
-      ambientLightColor: Vec3f
-    GpuSdfSceneUniforms = object
-      winResolution: Vec2i 
-      camPos, camForward, camRight, camUp: Vec3f
-      fov: GLfloat
-
 type
   RendererMode = enum
     Rasterizer, SdfRenderer
@@ -36,17 +18,6 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
-  RasterizerState = object
-    # Renderer state and wrapper objects
-    camera: RasterizerCamera
-    shader: ShaderRef
-    uniforms: ShaderDataBufferRef[GpuSceneUniforms]
-    vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
-    elementBuffers: seq[ElementBufferRef]
-    vertexArrays: seq[VertexArrayRef]
-    scene: Scene[ColoredVertex]
-  SdfRendererState = object
-    ##
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
 
@@ -56,8 +27,6 @@ const
 
 var
   state = EngineState()
-  rasterizer = RasterizerState()
-  sdfRenderer = SdfRendererState()
   logger = Logger()
 
 proc initSharedState(win: Window, mode: RendererMode) =
@@ -76,8 +45,29 @@ proc inputUpdate(win: Window, frame: var FrameState) =
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
 # ======================================== Rasterizer ========================================
-proc updateCameraAspect(win: Window) =
-  var (width, height) = glfw.framebufferSize(win)
+makeGlObjects(std140Alignment):
+  type GpuSceneUniforms = object
+    cameraPos: Vec3f
+    # Just one model to world transform for now, separate transforms for each model will be needed later
+    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
+    mainLightDirection: Vec3f
+    mainLightColor: Vec3f
+    ambientLightColor: Vec3f
+
+type 
+  RasterizerState = object
+    # Renderer state and wrapper objects
+    camera: RasterizerCamera
+    shader: ShaderRef
+    uniforms: ShaderDataBufferRef[GpuSceneUniforms]
+    vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
+    elementBuffers: seq[ElementBufferRef]
+    vertexArrays: seq[VertexArrayRef]
+    scene: Scene[ColoredVertex]
+
+var rasterizer = RasterizerState()
+
+proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
   case rasterizer.camera.kind
   of Perspective: rasterizer.camera.setPerspective(
@@ -125,7 +115,8 @@ proc initRasterizer(win: Window) =
   rasterizer.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
   rasterizer.camera.pos = vec3f(0, 0, 0)
   rasterizer.camera.updateTransform()
-  win.updateCameraAspect()
+  let (width, height) = glfw.framebufferSize(win)
+  win.updateCameraAspect(width, height)
 
   rasterizer.scene = initScene(
     rasterizer.camera,
@@ -200,19 +191,84 @@ proc drawRasterizer(win: Window) =
     rasterizer.scene.models[i].setUniforms()
     glDrawElements(GL_TRIANGLES, rasterizer.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
 
-proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect()
+proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
 
 # ======================================== SDF renderer (sphere tracer) ========================================
+makeGlObjects(std140Alignment):
+  type GpuSdfSceneUniforms = object
+    winResolution: Vec2i 
+    camPos, camForward, camRight, camUp: Vec3f
+    fov: GLfloat
+
+type
+  ScreenSpaceVertex = object
+    pos, uv: Vec2f
+  # TODO: Move camera data in this object (possibly using the existing camera class, but without rasterization specific stuff).
+  # Set uniforms by making a function that uses the camera class data.
+  SdfRendererState = object
+    shader: ShaderRef
+    uniforms: ShaderDataBufferRef[GpuSdfSceneUniforms]
+    imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
+    imagePlaneVao: VertexArrayRef
+
+var sdfRenderer = SdfRendererState()
+
+proc updateCameraAspect(width, height: int) =
+  glViewport(0, 0, width, height)
+
 proc initSdfRenderer(win: Window) =
-  ##
+  let (width, height) = glfw.framebufferSize(win)
+  updateCameraAspect(width, height)
+
+  sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  sdfRenderer.uniforms = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+
+  let vertices = @[
+    ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
+    ScreenSpaceVertex(pos: vec2f(1.0, -1.0), uv: vec2f(1.0, 0.0)), # Bottom right
+    ScreenSpaceVertex(pos: vec2f(1.0, 1.0), uv: vec2f(1.0, 1.0)), # Top right
+    ScreenSpaceVertex(pos: vec2f(-1.0, 1.0), uv: vec2f(0.0, 1.0)) # Top left
+  ]
+  let imagePlaneTriangles = @[
+    vertices[0], vertices[1], vertices[2],
+    vertices[0], vertices[2], vertices[3]
+  ]
+
+  sdfRenderer.imagePlaneVbo = initVertexBuffer (imagePlaneTriangles, GL_STATIC_DRAW).some
+  sdfRenderer.imagePlaneVao = initVertexArray()
+  sdfRenderer.imagePlaneVao.use()
+  sdfRenderer.imagePlaneVbo.use()
+
 proc uninitSdfRenderer() =
-  ##
+  sdfRenderer.imagePlaneVbo.cleanup()
+  sdfRenderer.imagePlaneVao.cleanup()
+  sdfRenderer.uniforms.cleanup()
+  sdfRenderer.shader.cleanup()
+
 proc updateSdfRenderer(win: Window, frame: FrameState) =
-  ##
+  ## TODO: Add camera movement here
+
 proc drawSdfRenderer(win: Window) =
-  ##
-proc sizeCbSdfRenderer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect()
-  ##
+  glClearColor(0.2, 0.3, 0.3, 1.0)
+  glClear(GL_COLOR_BUFFER_BIT)
+  
+  sdfRenderer.shader.use()
+  sdfRenderer.uniforms.use(sdfRenderer.shader)
+  # TODO: Move this into the appropriate callback
+  let (width, height) = glfw.framebufferSize(win)
+  sdfRenderer.uniforms.setField(winResolution, vec2i(width, height))
+
+  sdfRenderer.uniforms.setField(camPos, vec3f(0, 0, 3))
+  sdfRenderer.uniforms.setField(camForward, vec3f(0, 0, -1))
+  sdfRenderer.uniforms.setField(camRight, vec3f(1, 0, 0))
+  sdfRenderer.uniforms.setField(camUp, vec3f(0, 1, 0))
+  sdfRenderer.uniforms.setField(fov, 80)
+
+  sdfRenderer.imagePlaneVao.use()
+  glDrawArrays(GL_TRIANGLES, 0, 6)
+
+proc sizeCbSdfRenderer(win: Window, size: tuple[w, h: int32]) = 
+  updateCameraAspect(size.w, size.h)
 
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
@@ -233,6 +289,13 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
         state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate
       )
     state.fullscreen = not state.fullscreen
+
+  # TODO: Camera is not getting updated using the window size callback on fullscreen. This is a hack to update it.
+  # Find out why size callbacks don't fire on fullscreen.
+  let (width, height) = glfw.framebufferSize(win)
+  case state.mode
+  of Rasterizer: win.updateCameraAspect(width, height)
+  of SdfRenderer: updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   let newMonitor = win.monitor
@@ -277,7 +340,7 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   win.keyCb = keyCb
   case mode
   of Rasterizer: win.windowSizeCb = sizeCbRasterizer
-  of SdfRenderer: discard
+  of SdfRenderer: win.windowSizeCb = sizeCbSdfRenderer
   win.windowPositionCb = positionCb
   win.pos = (150, 100)
   win.aspectRatio = (3, 2)
