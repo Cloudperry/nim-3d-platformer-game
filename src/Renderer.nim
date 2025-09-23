@@ -267,7 +267,7 @@ proc drawSdfRenderer(win: Window) =
   # TODO: Move this into the appropriate callback
   let (width, height) = glfw.framebufferSize(win)
   sdfRenderer.uniforms.setField(winResolution, vec2i(width, height))
-  sdfRenderer.uniforms.setField(hitColor, vec3f(1, 0, 0))
+  sdfRenderer.uniforms.setField(hitColor, vec3f(1, 1, 1))
   sdfRenderer.uniforms.setField(bgColor, vec3f(0.2, 0.3, 0.3))
   sdfRenderer.uniforms.setField(fov, 80)
   state.camera.setUniforms()
