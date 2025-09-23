@@ -18,6 +18,7 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
+    camera: RasterizedCamera
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
 
@@ -34,15 +35,38 @@ proc initSharedState(win: Window, mode: RendererMode) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
+
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   state.cameraOpts = FpCameraOptions()
+  state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, mode == Rasterizer)
+  state.camera.pos = vec3f(0, 0, 0)
+  state.camera.updateTransform()
 
   logger = stdout.initLogger()
 
-proc inputUpdate(win: Window, frame: var FrameState) =
+proc commonUpdate(win: Window, frame: var FrameState) =
   let cursorPos = win.cursorPos
   (frame.cursorDeltaX, frame.cursorDeltaY) = (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
   (state.prevCursorX, state.prevCursorY) = cursorPos
+
+  # Keyboard input
+  var moveDirection = vec3f(0)
+  if win.isKeyDown(keyComma):
+    moveDirection.z -= 1
+  elif win.isKeyDown(keyO):
+    moveDirection.z += 1
+  if win.isKeyDown(keyE):
+    moveDirection.x += 1
+  elif win.isKeyDown(keyA):
+    moveDirection.x -= 1
+  if win.isKeyDown(keySpace):
+    moveDirection.y += 1
+  elif win.isKeyDown(keyBackslash):
+    moveDirection.y -= 1
+
+  state.camera.doFirstPersonCameraMovement(
+    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+  )
 
 # ======================================== Rasterizer ========================================
 makeGlObjects(std140Alignment):
@@ -57,7 +81,6 @@ makeGlObjects(std140Alignment):
 type 
   RasterizerState = object
     # Renderer state and wrapper objects
-    camera: RasterizerCamera
     shader: ShaderRef
     uniforms: ShaderDataBufferRef[GpuSceneUniforms]
     vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
@@ -69,12 +92,12 @@ var rasterizer = RasterizerState()
 
 proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
-  case rasterizer.camera.kind
-  of Perspective: rasterizer.camera.setPerspective(
-    rasterizer.camera.verticalFov, ratio, rasterizer.camera.nearClip, rasterizer.camera.farClip
+  case state.camera.kind
+  of Perspective: state.camera.setPerspective(
+    state.camera.verticalFov, ratio, state.camera.nearClip, state.camera.farClip
   )
-  of Orthographic: rasterizer.camera.setOrthographic(
-    rasterizer.camera.frustumLength, ratio, rasterizer.camera.nearClip, rasterizer.camera.farClip
+  of Orthographic: state.camera.setOrthographic(
+    state.camera.frustumLength, ratio, state.camera.nearClip, state.camera.farClip
   )
 
   glViewport(0, 0, width, height)
@@ -112,14 +135,11 @@ proc initRasterizer(win: Window) =
       sphere.vertices, sphere.indices, transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1))
     )
 
-  rasterizer.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
-  rasterizer.camera.pos = vec3f(0, 0, 0)
-  rasterizer.camera.updateTransform()
   let (width, height) = glfw.framebufferSize(win)
   win.updateCameraAspect(width, height)
 
   rasterizer.scene = initScene(
-    rasterizer.camera,
+    state.camera,
     @[cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
     vec3f(0.1).some
@@ -152,39 +172,19 @@ proc uninitRasterizer() =
   rasterizer.shader.cleanup()
 
 proc updateRasterizer(win: Window, frame: FrameState) =
-  # Keyboard input
-  var moveDirection = vec3f(0)
-  if win.isKeyDown(keyComma):
-    moveDirection.z -= 1
-  elif win.isKeyDown(keyO):
-    moveDirection.z += 1
-  if win.isKeyDown(keyE):
-    moveDirection.x += 1
-  elif win.isKeyDown(keyA):
-    moveDirection.x -= 1
-  if win.isKeyDown(keySpace):
-    moveDirection.y += 1
-  elif win.isKeyDown(keyBackslash):
-    moveDirection.y -= 1
-
-  rasterizer.camera.doFirstPersonCameraMovement(
-    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-  )
+  discard
 
 proc setUniforms(m: Model) =
   rasterizer.uniforms.setField(modelToWorldMat, m.transform.getTransformMat())
 
-proc setUniforms(c: RasterizerCamera) =
-  rasterizer.uniforms.setField(worldToViewMat, c.viewMat)
-  rasterizer.uniforms.setField(viewToClipMat, c.projectionMat)
-
+proc setUniforms(c: RasterizedCamera)
 proc drawRasterizer(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
   rasterizer.shader.use()
   rasterizer.uniforms.use(rasterizer.shader)
-  rasterizer.camera.setUniforms()
+  state.camera.setUniforms()
 
   for i in 0 .. rasterizer.vertexArrays.high:
     rasterizer.vertexArrays[i].use()
@@ -197,7 +197,7 @@ proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraA
 makeGlObjects(std140Alignment):
   type GpuSdfSceneUniforms = object
     winResolution: Vec2i 
-    camPos, camForward, camRight, camUp: Vec3f
+    camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
     fov: GLfloat
 
 type
@@ -248,6 +248,16 @@ proc uninitSdfRenderer() =
 proc updateSdfRenderer(win: Window, frame: FrameState) =
   ## TODO: Add camera movement here
 
+proc setUniforms(c: RasterizedCamera) =
+  if c.rasterizerOn:
+    rasterizer.uniforms.setField(worldToViewMat, c.viewMat)
+    rasterizer.uniforms.setField(viewToClipMat, c.projectionMat)
+  else:
+    sdfRenderer.uniforms.setField(camPos, c.pos)
+    sdfRenderer.uniforms.setField(camForward, c.forward)
+    sdfRenderer.uniforms.setField(camRight, c.right)
+    sdfRenderer.uniforms.setField(camUp, c.up)
+
 proc drawSdfRenderer(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
@@ -257,12 +267,10 @@ proc drawSdfRenderer(win: Window) =
   # TODO: Move this into the appropriate callback
   let (width, height) = glfw.framebufferSize(win)
   sdfRenderer.uniforms.setField(winResolution, vec2i(width, height))
-
-  sdfRenderer.uniforms.setField(camPos, vec3f(0, 0, 3))
-  sdfRenderer.uniforms.setField(camForward, vec3f(0, 0, -1))
-  sdfRenderer.uniforms.setField(camRight, vec3f(1, 0, 0))
-  sdfRenderer.uniforms.setField(camUp, vec3f(0, 1, 0))
+  sdfRenderer.uniforms.setField(hitColor, vec3f(1, 0, 0))
+  sdfRenderer.uniforms.setField(bgColor, vec3f(0.2, 0.3, 0.3))
   sdfRenderer.uniforms.setField(fov, 80)
+  state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
   glDrawArrays(GL_TRIANGLES, 0, 6)
@@ -364,16 +372,14 @@ proc updateDrawLoop(win: Window, frame: var FrameState; updateProc, drawProc: pr
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
     prevFrameStart = currFrameStart
-    win.inputUpdate(frame)
+    win.commonUpdate(frame)
     
     updateProc()
     let updateEnd = getMonoTime()
     drawProc()
-    let drawEnd = getMonoTime()
-
     glfw.swapBuffers(win)
     let currFrameEnd = getMonoTime()
-    logger.logPerf(updateEnd - currFrameStart, drawEnd - updateEnd, currFrameEnd - currFrameStart)
+    logger.logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
 
     glfw.pollEvents()
 
