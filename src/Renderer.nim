@@ -74,7 +74,7 @@ proc updateCameraAspect(win: Window; width, height: int) =
     rasterizer.camera.verticalFov, ratio, rasterizer.camera.nearClip, rasterizer.camera.farClip
   )
   of Orthographic: rasterizer.camera.setOrthographic(
-    rasterizer.camera.frustumScale, ratio, rasterizer.camera.nearClip, rasterizer.camera.farClip
+    rasterizer.camera.frustumLength, ratio, rasterizer.camera.nearClip, rasterizer.camera.farClip
   )
 
   glViewport(0, 0, width, height)
@@ -121,7 +121,7 @@ proc initRasterizer(win: Window) =
   rasterizer.scene = initScene(
     rasterizer.camera,
     @[cubeModel, pyramidModel, sphereModel],
-    DirectionalLight(direction: vec3f(8, 5, 3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
+    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
     vec3f(0.1).some
   )
 
@@ -159,13 +159,13 @@ proc updateRasterizer(win: Window, frame: FrameState) =
   elif win.isKeyDown(keyO):
     moveDirection.z += 1
   if win.isKeyDown(keyE):
-    moveDirection.x -= 1
-  elif win.isKeyDown(keyA):
     moveDirection.x += 1
+  elif win.isKeyDown(keyA):
+    moveDirection.x -= 1
   if win.isKeyDown(keySpace):
-    moveDirection.y -= 1
-  elif win.isKeyDown(keyBackslash):
     moveDirection.y += 1
+  elif win.isKeyDown(keyBackslash):
+    moveDirection.y -= 1
 
   rasterizer.camera.doFirstPersonCameraMovement(
     state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime

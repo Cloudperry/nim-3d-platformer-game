@@ -22,23 +22,37 @@ type
   # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
   RasterizerCamera* = object
     pos*: Vec3f
-    yaw*: GLfloat = PI/2 # Start the camera looking forward (toward -Z)
-    pitch*: GLfloat
+    # Positive yaw means turning left and positive pitch means turning up
+    yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
+    pitch*: GLfloat = 0
     viewMat*, projectionMat*: Mat4f
     aspectRatio*, nearClip*, farClip*: GLfloat
     case kind*: ProjectionKind
     of Orthographic:
-      frustumScale*: GLfloat
+      frustumLength*: GLfloat
     of Perspective:
       verticalFov*: GLfloat
 
+proc perspectiveRH*[T]( fovy, aspect, zNear, zFar:T): Mat4[T] =
+  let tanHalfFovy = tan(fovy / T(2))
+  result = mat4[T](0.0)
+  result[0,0] = -T(1) / (aspect * tanHalfFovy)
+  result[1,1] = -T(1) / (tanHalfFovy)
+  result[2,3] = T(-1)
+
+  result[2,2] = -(zFar + zNear) / (zFar - zNear)
+  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
+
 proc updateProjectionMat*(c: var RasterizerCamera) =
-  c.projectionMat = case c.kind
-  of Orthographic: ortho[GLfloat](
-    -c.frustumScale * c.aspectRatio, c.frustumScale * c.aspectRatio,
-    -c.frustumScale, c.frustumScale, c.nearClip, c.farClip
-  )
-  of Perspective: perspective[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
+  case c.kind
+  of Orthographic:
+    let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
+    c.projectionMat = ortho[GLfloat](
+      -frustumW / 2, frustumW / 2,
+      -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
+    )
+  of Perspective:
+    c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
 
 proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat): RasterizerCamera =
   result = RasterizerCamera(kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov, nearClip: nearClip, farClip: farClip)
@@ -51,11 +65,12 @@ proc setPerspective*(c: var RasterizerCamera, verticalFov, aspectRatio, nearClip
   c.farClip = farClip
   c.updateProjectionMat()
 
-proc initOrthographicCamera*(frustumScale, aspectRatio, nearClip, farClip: GLfloat): RasterizerCamera =
-  RasterizerCamera(kind: Orthographic, aspectRatio: aspectRatio, frustumScale: frustumScale, nearClip: nearClip, farClip: farClip)
-proc setOrthographic*(c: var RasterizerCamera, frustumScale, aspectRatio, nearClip, farClip: GLfloat) =
+proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): RasterizerCamera =
+  result = RasterizerCamera(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
+  result.updateProjectionMat()
+proc setOrthographic*(c: var RasterizerCamera, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
   c.kind = Orthographic
-  c.frustumScale = frustumScale
+  c.frustumLength = frustumLength
   c.aspectRatio = aspectRatio
   c.nearClip = nearClip
   c.farClip = farClip
@@ -68,18 +83,12 @@ proc getTransformMat*(t: Transform): Mat4f =
   scaleMat[1, 1] = t.scale.y
   scaleMat[2, 2] = t.scale.z
 
-  # Rotation
+  # Rotation in X -> Y -> Z order (pitch -> yaw -> roll)
   let (cx, cy, cz) = (cos(t.rotation.x), cos(t.rotation.y), cos(t.rotation.z))
   let (sx, sy, sz) = (sin(t.rotation.x), sin(t.rotation.y), sin(t.rotation.z))
-  rotateMat[0,0] = cy * cz
-  rotateMat[0,1] = -cy * sz
-  rotateMat[0,2] = sy
-  rotateMat[1,0] = sx * sy * cz + cx * sz
-  rotateMat[1,1] = -sx * sy * sz + cx * cz
-  rotateMat[1,2] = -sx * cy
-  rotateMat[2,0] = -cx * sy * cz + sx * sz
-  rotateMat[2,1] = cx * sy * sz + sx * cz
-  rotateMat[2,2] = cx * cy
+  rotateMat.row0 = vec4f( cy * cz                 , -cy * sz                , sy       , 0.0 )
+  rotateMat.row1 = vec4f( sx * sy * cz + cx * sz  , -sx * sy * sz + cx * cz , -sx * cy , 0.0 )
+  rotateMat.row2 = vec4f( -cx * sy * cz + sx * sz , cx * sy * sz + sx * cz  , cx * cy  , 0.0 )
 
   # Translation
   translateMat[3, 0] = t.pos.x
@@ -91,9 +100,10 @@ proc getLocalDirections(c: RasterizerCamera): tuple[forward, right, up: Vec3f] =
   let
     cosPitch = cos(c.pitch)
     sinPitch = sin(c.pitch)
-    cosYaw = cos(c.yaw)
-    sinYaw = sin(c.yaw)
-    forward = vec3f(cosPitch * cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
+    # Make camera look forward (-Z) when yaw is 0
+    cosYaw = cos(c.yaw + PI / 2)
+    sinYaw = sin(c.yaw + PI / 2)
+    forward = vec3f(cosPitch * -cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
     right = cross(forward, vec3f(0, 1, 0)).normalize()
     up = cross(right, forward)
   return (forward, right, up)
@@ -132,7 +142,7 @@ proc doFirstPersonCameraMovement*(c: var RasterizerCamera, co: FpCameraOptions, 
     c.pos.y += moveDirection.y * co.moveSpeed * dt 
     tChanged = true
   if (deltaX, deltaY) != (0.0, 0.0):
-    c.rotate(co, deltaX, deltaY)
+    c.rotate(co, deltaX, -deltaY)
     tChanged = true
 
   if tChanged:
