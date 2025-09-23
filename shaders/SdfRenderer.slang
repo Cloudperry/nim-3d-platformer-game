@@ -151,7 +151,7 @@ float3 exactNormal(in float3 p) {
 [shader("fragment")]
 FragmentOutput fragmentMain(VertexOutput input) {
   const int maxSteps = 512;
-  const float hitDistance = 0.001;
+  const float hitDistance = 0.0001;
   // TODO: Dynamic far clip distance based on scene contents?
   const float farClipDist = 100.0;
   // Lighting is hardcoded for now
@@ -170,7 +170,13 @@ FragmentOutput fragmentMain(VertexOutput input) {
     float3 pos = uniforms.camPos + rayDir * dist;
     float distToClosest = sdScene(pos);
 
-    if (distToClosest < hitDistance) {
+    // TODO: Step back to make sure that the hit isn't inside the shape. Hits inside the shape can cause incorrect
+    // normals.
+    if (distToClosest < 0) {
+      // Debug visualisation, show pure white for pixels where the hit was inside the surface
+      output.color = float4(1.0);
+      return output;
+    } else if (distToClosest < hitDistance) {
       float3 posNext = uniforms.camPos + rayDir * (dist + distToClosest);
       float3 worldNormal = exactNormal(posNext);
       float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * uniforms.hitColor;
