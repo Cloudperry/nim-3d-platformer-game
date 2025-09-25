@@ -61,16 +61,22 @@ proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
 
   if logger.timeSinceLastLog >= logger.perfAvgDuration:
     var updateSum, drawSum, frameTimeSum = initDuration()
-    var count = 0
     for time in logger.updateTimes.range(logger.lastLogI, logger.updateTimes.i): updateSum += time
     for time in logger.drawTimes.range(logger.lastLogI, logger.drawTimes.i): drawSum += time
+
+    var (frameTimeMin, frameTimeMax) = (Duration.high, Duration.low)
+    var count = 0
     for time in logger.frameTimes.range(logger.lastLogI, logger.frameTimes.i): 
       frameTimeSum += time
+      frameTimeMin = min(time, frameTimeMin)
+      frameTimeMax = max(time, frameTimeMax)
       count += 1
 
     logger.timeSinceLastLog = initDuration()
     logger.lastLogI = logger.frameTimes.i
 
-    let (updateAvg, drawAvg) = (inMicroseconds(updateSum div count), inMicroseconds(drawSum div count))
+    let (updateAvg, drawAvg, minTime, maxTime) = (
+      inMicroseconds(updateSum div count), inMicroseconds(drawSum div count), inMicroseconds(frameTimeMin), inMicroseconds(frameTimeMax)
+    )
     let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
-    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}".some
+    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}, Min/max frametimes: {minTime}/{maxTime} μs".some
