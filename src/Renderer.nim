@@ -194,11 +194,15 @@ proc drawRasterizer(win: Window) =
 proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
 
 # ======================================== SDF renderer (sphere tracer) ========================================
+type RenderMode {.size: sizeof(uint32).} = enum
+  ShadedScene, UnlitScene, DebugNormals
 makeGlObjects(std140Alignment):
   type GpuSdfSceneUniforms = object
-    winResolution: Vec2i 
+    aspect: GLfloat 
     camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
     fov: GLfloat
+  type DebugSettings = object
+    mode: RenderMode
 
 type
   ScreenSpaceVertex = object
@@ -207,7 +211,8 @@ type
   # Set uniforms by making a function that uses the camera class data.
   SdfRendererState = object
     shader: ShaderRef
-    uniforms: ShaderDataBufferRef[GpuSdfSceneUniforms]
+    sceneUbo: ShaderDataBufferRef[GpuSdfSceneUniforms]
+    debugOptUbo: ShaderDataBufferRef[DebugSettings]
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
 
@@ -221,7 +226,9 @@ proc initSdfRenderer(win: Window) =
   updateCameraAspect(width, height)
 
   sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  sdfRenderer.uniforms = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  # This could probably be GL_STATIC_DRAW as its updated veery rarely, but OpenGL complained when updating it
+  sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
 
   let vertices = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
@@ -242,7 +249,7 @@ proc initSdfRenderer(win: Window) =
 proc uninitSdfRenderer() =
   sdfRenderer.imagePlaneVbo.cleanup()
   sdfRenderer.imagePlaneVao.cleanup()
-  sdfRenderer.uniforms.cleanup()
+  sdfRenderer.sceneUbo.cleanup()
   sdfRenderer.shader.cleanup()
 
 proc updateSdfRenderer(win: Window, frame: FrameState) =
@@ -253,23 +260,23 @@ proc setUniforms(c: RasterizedCamera) =
     rasterizer.uniforms.setField(worldToViewMat, c.viewMat)
     rasterizer.uniforms.setField(viewToClipMat, c.projectionMat)
   else:
-    sdfRenderer.uniforms.setField(camPos, c.pos)
-    sdfRenderer.uniforms.setField(camForward, c.forward)
-    sdfRenderer.uniforms.setField(camRight, c.right)
-    sdfRenderer.uniforms.setField(camUp, c.up)
+    sdfRenderer.sceneUbo.setField(camPos, c.pos)
+    sdfRenderer.sceneUbo.setField(camForward, c.forward)
+    sdfRenderer.sceneUbo.setField(camRight, c.right)
+    sdfRenderer.sceneUbo.setField(camUp, c.up)
 
 proc drawSdfRenderer(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
   
   sdfRenderer.shader.use()
-  sdfRenderer.uniforms.use(sdfRenderer.shader)
+  sdfRenderer.sceneUbo.use(sdfRenderer.shader)
   # TODO: Move this into the appropriate callback
   let (width, height) = glfw.framebufferSize(win)
-  sdfRenderer.uniforms.setField(winResolution, vec2i(width, height))
-  sdfRenderer.uniforms.setField(hitColor, vec3f(1, 1, 1))
-  sdfRenderer.uniforms.setField(bgColor, vec3f(0.2, 0.3, 0.3))
-  sdfRenderer.uniforms.setField(fov, 80)
+  sdfRenderer.sceneUbo.setField(aspect, width / height)
+  sdfRenderer.sceneUbo.setField(hitColor, vec3f(1, 1, 1))
+  sdfRenderer.sceneUbo.setField(bgColor, vec3f(0.2, 0.3, 0.3))
+  sdfRenderer.sceneUbo.setField(fov, 80)
   state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
@@ -302,8 +309,17 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
   # Find out why size callbacks don't fire on fullscreen.
   let (width, height) = glfw.framebufferSize(win)
   case state.mode
-  of Rasterizer: win.updateCameraAspect(width, height)
-  of SdfRenderer: updateCameraAspect(width, height)
+  of Rasterizer:
+    win.updateCameraAspect(width, height)
+  of SdfRenderer:
+    # SDF debug keybinds
+    if key == keyF1 and action == kaDown:
+      sdfRenderer.debugOptUbo.setField(mode, ShadedScene)
+    elif key == keyF2 and action == kaDown:
+      sdfRenderer.debugOptUbo.setField(mode, UnlitScene)
+    elif key == keyF3 and action == kaDown:
+      sdfRenderer.debugOptUbo.setField(mode, DebugNormals)
+    updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   let newMonitor = win.monitor

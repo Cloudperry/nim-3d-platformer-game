@@ -1,4 +1,4 @@
-import std/[tables, strformat, options, sequtils, bitops, sugar, macros]
+import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros]
 import ./glad/gl
 import pkg/glm
 
@@ -78,7 +78,7 @@ const std140Alignment* = collect:
   for (list, align) in [
     # Types aligned to 4 bytes
     (@[GLfloat.getTypeImpl().repr, GLint.getTypeImpl().repr,
-       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr], 4),
+       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr, "enum"], 4),
     # Types aligned to 8 bytes
     (@[Vec2f.getTypeImpl().repr, Vec2i.getTypeImpl().repr,
        Vec2ui.getTypeImpl().repr, Vec2b.getTypeImpl().repr,
@@ -121,9 +121,13 @@ macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untype
               for fieldDefSection in fields:
                 if fieldDefSection.kind == nnkIdentDefs:
                   let typeNode = fieldDefSection[^2]
-                  let typeImplStr = typeNode.getTypeImpl().repr
-                  # TODO: Add error for types that don't have alignment defined in the table
-                  let alignment = alignTable[typeImplStr]
+                  var typeImplStr = typeNode.getTypeImpl().repr
+                  # NOTE: Splitting by newline her is a nasty hack to be able to stuff enums in the alignment table
+                  if typeImplStr.startsWith("enum"): typeImplStr = typeImplStr.split("\n")[0] 
+                  let alignment = alignTable.getOrDefault(typeImplStr)
+                  if alignment == int.default:
+                    raise newException(Exception, fmt"Padding not defined for type {typeImplStr.repr}. " &
+                    fmt"Define padding for it in your own alignment table (or add it in {currentSourcePath()}).")
                   
                   for i in 0 .. fieldDefSection.len - 3:
                     if fieldDefSection[i].kind == nnkPragmaExpr:

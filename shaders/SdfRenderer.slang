@@ -15,13 +15,23 @@ struct FragmentOutput {
 }
 
 struct SceneUniforms {
-  int2 winResolution;
+  float aspect;
   float3 camPos, camForward, camRight, camUp, hitColor, bgColor;
   float fov;
 }
 
+enum RenderMode {
+	ShadedScene, UnlitScene, DebugNormals
+}
+
+struct DebugSettings {
+	RenderMode mode;
+}
+
 [[vk::binding(0)]]
-ConstantBuffer<SceneUniforms> uniforms;
+ConstantBuffer<SceneUniforms> scene;
+[[vk::binding(1)]]
+ConstantBuffer<DebugSettings> debugOpt;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -296,12 +306,11 @@ FragmentOutput fragmentMain(VertexOutput input) {
   FragmentOutput output;
 
   float2 uvNdc = input.fragUv * 2.0 - 1.0;
-  float aspect = (float)uniforms.winResolution.x / (float)uniforms.winResolution.y;
-  uvNdc.x *= aspect;
-  float z = 1.0 / tan(radians(uniforms.fov) * 0.5); // Image plane depth
-  float3 rayDirection = normalize(uniforms.camForward * z + uniforms.camRight * uvNdc.x + uniforms.camUp * uvNdc.y);
+  uvNdc.x *= scene.aspect;
+  float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
+  float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-	var hitOpt = sphereTrace(uniforms.camPos, rayDirection);
+	var hitOpt = sphereTrace(scene.camPos, rayDirection);
 	if (hitOpt.hasValue) {
 		let hit = hitOpt.value;
 		float3 hitPos = hit._0;
@@ -310,19 +319,27 @@ FragmentOutput fragmentMain(VertexOutput input) {
 		float3 safePos = hitPos - (stepDistance * rayDirection);
 		float3 worldNormalHit = exactNormal(hitPos);
 		float3 worldNormalSafe = calcNormal(safePos, max(numericNormalMinEps, 1e-9 * hitDist));
-		float3 worldNormal = dot(worldNormalHit, -uniforms.camForward) > dot(worldNormalSafe, -uniforms.camForward)
+		float3 worldNormal = dot(worldNormalHit, -scene.camForward) > dot(worldNormalSafe, -scene.camForward)
 														? worldNormalHit
 														: worldNormalSafe;
 
-		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * uniforms.hitColor;
-		output.color = float4(diffuseColor, 1.0);
-		// Unlit objects:
-		// output.color = float4(uniforms.hitColor, 1.0);
-		return output;
+		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * scene.hitColor;
+
+		switch(debugOpt.mode) {
+			case RenderMode.ShadedScene:
+				output.color = float4(diffuseColor, 1.0);
+				return output;
+			case RenderMode.UnlitScene:
+				output.color = float4(scene.hitColor, 1.0);
+				return output;
+			case RenderMode.DebugNormals:
+				output.color = float4(worldNormal, 1.0);
+				return output;
+		}
 	}
 
   // Set to background color to prevent weird colors for pixels with no hits
-  output.color = float4(uniforms.bgColor, 1.0);
+  output.color = float4(scene.bgColor, 1.0);
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);
   return output;
