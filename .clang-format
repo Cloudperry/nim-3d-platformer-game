@@ -1,2 +1,6 @@
 ---
+IndentWidth: 2
+ContinuationIndentWidth: 2
+BreakBeforeConceptDeclarations: Never
+BreakBeforeTemplateCloser: false # Don't split Slang generic constraints to next line
 ColumnLimit: 120
