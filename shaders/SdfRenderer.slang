@@ -22,6 +22,42 @@ struct SceneUniforms {
   float fov;
 }
 
+enum SdfNodeKind {
+	// Operations
+	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
+	// Shapes
+	Sphere, Box, RoundBox, BoxFrame, Cone, CappedCone, HexPrism, TriPrism, Capsule,
+	CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad
+}
+
+struct Material {
+	float3 color; // Add alpha channel for transparency and add refractive index?
+	float metalness; // How reflective is the surface? Controls how much of diffuse/specular lighting the surface will have.
+}
+
+struct SdfProgramData {
+	 Material materialData[256];
+		// This is only enough for about 1000 shapes in the worst case, but it should be enough for most SDF scenes that can run in real-time
+	 uint8_t params[65536]; 
+	 // Index to params where instruction outputs start. For implementing safety mechanisms together with isLeafNode.
+	 // uint16_t instructionOutputsStart;
+}
+
+struct SdfInstruction {
+	SdfNodeKind kind;
+	uint16_t paramsIndex; // Index to array that has both the outputs of this SDF program and the input parameters
+	uint16_t outputIndex; // Index to the program outputs array where this instruction will put its return value to
+	uint8_t materialIndex; // Zero for SDF nodes that aren't a shape
+	uint8_t paramsSize; // How many bytes starting from paramsIndex are parameters for this instruction?
+	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
+	// Non-leaf nodes should only read results of previous instructions.
+	// bool isLeafNode; 
+}
+
+struct SdfProgram {
+	SdfInstruction instructions[];
+}
+
 enum RenderMode {
 	ShadedScene, UnlitScene, DebugNormals
 }
@@ -34,6 +70,11 @@ struct DebugSettings {
 ConstantBuffer<SceneUniforms> scene;
 [[vk::binding(1)]]
 ConstantBuffer<DebugSettings> debugOpt;
+
+[[vk::binding(0)]]
+StructuredBuffer<SdfProgramData> sdfPogramData;
+[[vk::binding(1)]]
+StructuredBuffer<SdfProgram> sdfProgram;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
