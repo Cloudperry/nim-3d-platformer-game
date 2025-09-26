@@ -195,7 +195,7 @@ proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraA
 
 # ======================================== SDF renderer (sphere tracer) ========================================
 type RenderMode {.size: sizeof(uint32).} = enum
-  ShadedScene, UnlitScene, DebugNormals
+  ShadedScene, UnlitScene, DebugNormals, DebugStepCounts
 makeGlObjects(std140Alignment):
   type GpuSdfSceneUniforms = object
     aspect: GLfloat 
@@ -319,6 +319,8 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
       sdfRenderer.debugOptUbo.setField(mode, UnlitScene)
     elif key == keyF3 and action == kaDown:
       sdfRenderer.debugOptUbo.setField(mode, DebugNormals)
+    elif key == keyF4 and action == kaDown:
+      sdfRenderer.debugOptUbo.setField(mode, DebugStepCounts)
     updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =

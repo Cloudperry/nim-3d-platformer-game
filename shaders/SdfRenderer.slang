@@ -48,7 +48,7 @@ struct SdfProgram {
 }
 
 enum RenderMode {
-	ShadedScene, UnlitScene, DebugNormals
+	ShadedScene, UnlitScene, DebugNormals, DebugStepCounts
 }
 
 struct DebugSettings {
@@ -56,7 +56,7 @@ struct DebugSettings {
 }
 
 [[vk::binding(0)]]
-ConstantBuffer<SceneUniforms> scene;
+ConstantBuffer<SceneUniforms> sceneUbo;
 [[vk::binding(1)]]
 ConstantBuffer<DebugSettings> debugOpt;
 
@@ -254,81 +254,94 @@ float3 exactNormal<T>(T scene, in float3 p) where T : IFloatSdfScene {
   return normalize(normal);
 }
 
-// TODO: It would probably be better for clarity and performance to just make the ray distance and last step size inout (ref) parameters 
-typedef Tuple<float3, float, float> SphereTraceHit;
-Optional<SphereTraceHit> sphereTrace<T>(T scene, float3 startPos, float3 rayDir) where T : IFloatSdfScene {
-  const int maxSteps = 1024;
-  const float baseHitDist = 1e-6; // How close to an object should the ray be for it to hit
-	// NOTE: Recheck minHitDist and maxHitDist. These distances were setup when the clamping of hitDist was broken (wrong arg order).
-	const float minHitDist = 1e-8; // This might be too small
-	const float maxHitDist = 1e-2;
+static const int maxSteps = 512;
+Optional<float3> sphereTrace<T>(
+	T scene, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount
+) where T : IFloatSdfScene {
+  const float baseHitEps = 1e-6; // How close to an object should the ray be for it to hit
+	// NOTE: Recheck minHitEps and maxHitEps. These distances were setup when the clamping of hitEps was broken (wrong arg order).
+	const float minHitEps = 1e-8; // This might be too small
+	const float maxHitEps = 1e-2;
+	const float maxEpsStepCountScaling = 5000;
   // TODO: Dynamic far clip distance based on scene contents?
   const float farClipDist = 100.0;
 
-  float dist = 0;
-	for (uint i = 0; i < maxSteps; i++) {
-    float3 pos = startPos + rayDir * dist;
-    float distToClosest = scene.sdf(pos);
-		// Dynamic hit distance/epsilon to prevent far away rays from skipping valid hits
-		float hitDist = clamp(baseHitDist * dist, minHitDist, maxHitDist); 
+  rayDist = 0;
+	for (stepCount = 0; stepCount < maxSteps; stepCount++) {
+    float3 pos = startPos + rayDir * rayDist;
+    distToClosest = scene.sdf(pos);
+		// Dynamic ray hit epsilon. Scale by dist to keep ray from missing far away hits and
+		// by step budget to prevent missing surfaces at grazing angles. 
+		float stepCountScale = 1.0 + maxEpsStepCountScaling * pow(stepCount / float(maxSteps), 10); // On the GPU, pow might be heavy?
+		float hitEps = clamp(baseHitEps * rayDist * stepCountScale, minHitEps, maxHitEps); 
 
-    if (distToClosest < hitDist) {
+    if (distToClosest < hitEps) {
       float3 hitPos = pos + rayDir * distToClosest;
-			return makeTuple(hitPos, dist, distToClosest);
+			return hitPos;
     }
 
-    dist += distToClosest;
-    if (dist > farClipDist)
+    rayDist += distToClosest;
+    if (rayDist > farClipDist)
       break;
   }
 
 	return none;
 }
 
-// Check the fragment shader code to make sure it matches a basic raytraced camera setup. This was done very quickly to
-// see if a fullscreen shader works.
-[shader("fragment")]
-FragmentOutput fragmentMain(VertexOutput input) {
+void renderScene<T>(T scene, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
   const float3 lightDirection = normalize(float3(-5.0, -5.0, -3.0));
 	const float numericNormalMinEps = 8e-6;
-  FragmentOutput output;
 
-  float2 uvNdc = input.fragUv * 2.0 - 1.0;
-  uvNdc.x *= scene.aspect;
-  float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
-  float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
-
-	var hitOpt = sphereTrace(ClaudeBuildingScene(), scene.camPos, rayDirection);
+	float rayDist, lastStepLen;
+	uint stepCount;
+	var hitOpt = sphereTrace(scene, sceneUbo.camPos, rayDirection, rayDist, lastStepLen, stepCount);
 	if (hitOpt.hasValue) {
-		let hit = hitOpt.value;
-		float3 hitPos = hit._0;
-		float hitDist = hit._1;
-		float stepDistance = hit._2;
-		float3 safePos = hitPos - (stepDistance * rayDirection);
-		float3 worldNormalHit = exactNormal(ClaudeBuildingScene(), hitPos);
-		float3 worldNormalSafe = calcNormal(ClaudeBuildingScene(), safePos, max(numericNormalMinEps, 1e-9 * hitDist));
-		float3 worldNormal = dot(worldNormalHit, -scene.camForward) > dot(worldNormalSafe, -scene.camForward)
+		let hitPos = hitOpt.value;
+		float3 safePos = hitPos - (lastStepLen * rayDirection);
+		float3 worldNormalHit = exactNormal(scene, hitPos);
+		float3 worldNormalSafe = calcNormal(scene, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
+		float3 worldNormal = dot(worldNormalHit, -sceneUbo.camForward) > dot(worldNormalSafe, -sceneUbo.camForward)
 														? worldNormalHit
 														: worldNormalSafe;
 
-		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * scene.hitColor;
+		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * sceneUbo.hitColor;
 
 		switch(debugOpt.mode) {
 			case RenderMode.ShadedScene:
 				output.color = float4(diffuseColor, 1.0);
-				return output;
+				return;
 			case RenderMode.UnlitScene:
-				output.color = float4(scene.hitColor, 1.0);
-				return output;
+				output.color = float4(sceneUbo.hitColor, 1.0);
+				return;
 			case RenderMode.DebugNormals:
 				output.color = float4(worldNormal, 1.0);
-				return output;
+				return;
+			case RenderMode.DebugStepCounts:
+				float normalizedStepCount = saturate((float)stepCount / (maxSteps / 2));
+				float3 stepsGradientColor = lerp(float3(0, 1, 0), float3(1, 0, 0), normalizedStepCount);
+				output.color = float4(stepsGradientColor, 1);
+				return;
 		}
 	}
 
   // Set to background color to prevent weird colors for pixels with no hits
-  output.color = float4(scene.bgColor, 1.0);
+  output.color = float4(sceneUbo.bgColor, 1.0);
+}
+
+// Check the fragment shader code to make sure it matches a basic raytraced camera setup. This was done very quickly to
+// see if a fullscreen shader works.
+[shader("fragment")]
+FragmentOutput fragmentMain(VertexOutput input) {
+  FragmentOutput output = (FragmentOutput)0;
+
+  float2 uvNdc = input.fragUv * 2.0 - 1.0;
+  uvNdc.x *= sceneUbo.aspect;
+  float z = 1.0 / tan(radians(sceneUbo.fov) * 0.5); // Image plane depth
+  float3 rayDirection = normalize(sceneUbo.camForward * z + sceneUbo.camRight * uvNdc.x + sceneUbo.camUp * uvNdc.y);
+
+	renderScene(ClaudeBuildingScene(), output, rayDirection);
+
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);
   return output;
