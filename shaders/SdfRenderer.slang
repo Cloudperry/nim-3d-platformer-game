@@ -11,7 +11,7 @@ struct SceneUniforms {
   float fov;
 }
 
-enum SdfNodeKind {
+enum SdfInstructionKind {
 	// Operations
 	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
 	// Shapes
@@ -26,14 +26,14 @@ struct Material {
 
 struct SdfProgramData {
 	 Material materialData[256];
-		// This is only enough for about 1000 shapes in the worst case, but it should be enough for most SDF scenes that can run in real-time
-	 uint8_t params[65536]; 
+	 // This is enough for about 8000 shapes in the worst case, but it should be enough for most SDF scenes that can run in real-time
+	 uint params[65536]; 
 	 // Index to params where instruction outputs start. For implementing safety mechanisms together with isLeafNode.
 	 // uint16_t instructionOutputsStart;
 }
 
 struct SdfInstruction {
-	SdfNodeKind kind;
+	SdfInstructionKind kind;
 	uint16_t paramsIndex; // Index to array that has both the outputs of this SDF program and the input parameters
 	uint16_t outputIndex; // Index to the program outputs array where this instruction will put its return value to
 	uint8_t materialIndex; // Zero for SDF nodes that aren't a shape
@@ -41,10 +41,6 @@ struct SdfInstruction {
 	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
 	// Non-leaf nodes should only read results of previous instructions.
 	// bool isLeafNode; 
-}
-
-struct SdfProgram {
-	SdfInstruction instructions[];
 }
 
 enum RenderMode {
@@ -56,14 +52,14 @@ struct DebugSettings {
 }
 
 [[vk::binding(0)]]
-ConstantBuffer<SceneUniforms> sceneUbo;
+ConstantBuffer<SceneUniforms> scene;
 [[vk::binding(1)]]
 ConstantBuffer<DebugSettings> debugOpt;
 
 [[vk::binding(0)]]
-StructuredBuffer<SdfProgramData> sdfPogramData;
+RWStructuredBuffer<SdfProgramData> sceneProgramData;
 [[vk::binding(1)]]
-StructuredBuffer<SdfProgram> sdfProgram;
+RWStructuredBuffer<SdfInstruction> sceneProgram;
 
 struct VertexInput {
   [[vk::location(0)]]
@@ -234,20 +230,122 @@ struct ClaudeBuildingScene : IFloatSdfScene {
 	}
 }
 
+float readFloat(uint paramIndex) {
+	return asfloat(sceneProgramData[0].params[paramIndex + 0]);
+}
+float2 readFloat2(uint paramIndex) {
+	return float2(
+		asfloat(sceneProgramData[0].params[paramIndex]),
+		asfloat(sceneProgramData[0].params[paramIndex + 1]),
+	);
+}
+float3 readFloat3(uint paramIndex) {
+	return float3(
+		asfloat(sceneProgramData[0].params[paramIndex]),
+		asfloat(sceneProgramData[0].params[paramIndex + 1]),
+		asfloat(sceneProgramData[0].params[paramIndex + 2])
+	);
+}
+void writeFloat(uint paramIndex, float value) {
+	sceneProgramData[0].params[paramIndex] = asuint(value);
+}
+void writeFloat2(uint paramIndex, float2 value) {
+	sceneProgramData[0].params[paramIndex] = asuint(value.x);
+	sceneProgramData[0].params[paramIndex + 1] = asuint(value.y);
+}
+void writeFloat3(uint paramIndex, float3 value) {
+	sceneProgramData[0].params[paramIndex] = asuint(value.x);
+	sceneProgramData[0].params[paramIndex + 1] = asuint(value.y);
+	sceneProgramData[0].params[paramIndex + 2] = asuint(value.z);
+}
+
+/*enum SdfNodeKind {
+	// Operations
+	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
+	// Shapes
+	Sphere, Box, RoundBox, BoxFrame, Cone, CappedCone, HexPrism, TriPrism, Capsule,
+	CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad
+}*/
+void evalSphere(SdfInstruction insn) {
+	float3 p; float r;
+	p = readFloat3(insn.paramsIndex); r = readFloat(insn.paramsIndex + 3);
+	float res = sdSphere(p, r);
+	writeFloat(insn.outputIndex, res);
+}
+void evalBox(SdfInstruction insn) {
+	float3 p; float3 halfExtent;
+	p = readFloat3(insn.paramsIndex); halfExtent = readFloat3(insn.paramsIndex + 3);
+	float res = sdBox(p, halfExtent);
+	writeFloat(insn.outputIndex, res);
+}
+void evalRoundBox(SdfInstruction insn) {
+	float3 p; float3 halfExtent; float r;
+	p = readFloat3(insn.paramsIndex); halfExtent = readFloat3(insn.paramsIndex + 3); r = readFloat(insn.paramsIndex + 6);
+	float res = sdRoundBox(p, halfExtent, r);
+	writeFloat(insn.outputIndex, res);
+}
+void evalBoxFrame(SdfInstruction insn) {
+	float3 p; float3 b; float e;
+	p = readFloat3(insn.paramsIndex); b = readFloat3(insn.paramsIndex + 3); e = readFloat(insn.paramsIndex + 6);
+	float res = sdBoxFrame(p, b, e);
+	writeFloat(insn.outputIndex, res);
+}
+void evalCone(SdfInstruction insn) {
+	float3 p; float2 c; float h;
+	p = readFloat3(insn.paramsIndex); c = readFloat2(insn.paramsIndex + 3); h = readFloat(insn.paramsIndex + 5);
+	float res = sdCone(p, c, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalCappedCone(SdfInstruction insn) {
+	float3 p; float3 a; float3 b; float ra; float rb;
+	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
+	ra = readFloat(insn.paramsIndex + 9); rb = readFloat(insn.paramsIndex + 10);
+	float res = sdCappedCone(p, a, b, ra, rb);
+	writeFloat(insn.outputIndex, res);
+}
+void evalHexPrism(SdfInstruction insn) {
+	float3 p; float2 h;
+	p = readFloat3(insn.paramsIndex); h = readFloat2(insn.paramsIndex + 3);
+	float res = sdHexPrism(p, h);
+	writeFloat(insn.outputIndex, res);
+}
+
+// TODO: Add rest of the shapes and return the material somehow
+
+/* Commented out to avoid compile error from function not being auto-diffable
+struct SdfProgramScene : IFloatSdfScene {
+	static float sdf(float3 p) {
+		uint insnCount, stride; sceneProgram.GetDimensions(insnCount, stride);
+		for (uint i = 0; i < insnCount; i++) {
+			SdfInstruction insn = sceneProgram[i];
+			switch (insn.kind) {
+				case SdfInstructionKind.Sphere: evalSphere(insn); break;
+				case SdfInstructionKind.Box: evalBox(insn); break;
+				case SdfInstructionKind.RoundBox: evalRoundBox(insn); break;
+				case SdfInstructionKind.BoxFrame: evalBoxFrame(insn); break;
+				case SdfInstructionKind.Cone: evalCone(insn); break;
+				case SdfInstructionKind.CappedCone: evalCappedCone(insn); break;
+				case SdfInstructionKind.HexPrism: evalHexPrism(insn); break;
+			}
+		}
+	}
+}
+*/
+
 // Fancy numeric normal function from https://iquilezles.org/articles/normalsSDF/
-float3 calcNormal<T>(T scene, float3 p, float eps) where T : IFloatSdfScene {
+float3 calcNormal<T>(T sceneFn, float3 p, float eps) where T : IFloatSdfScene {
   const float2 k = float2(1, -1);
-  return normalize(k.xyy * scene.sdf(p + k.xyy * eps) + k.yyx * scene.sdf(p + k.yyx * eps) +
-                   k.yxy * scene.sdf(p + k.yxy * eps) + k.xxx * scene.sdf(p + k.xxx * eps));
+  return normalize(k.xyy * sceneFn.sdf(p + k.xyy * eps) + k.yyx * sceneFn.sdf(p + k.yyx * eps) +
+                   k.yxy * sceneFn.sdf(p + k.yxy * eps) + k.xxx * sceneFn.sdf(p + k.xxx * eps));
 }
 
 // Slang auto-diff based normal
-float3 exactNormal<T>(T scene, in float3 p) where T : IFloatSdfScene {
+float3 exactNormal<T>(T sceneFn, in float3 p) where T : IFloatSdfScene {
   float3 normal;
   for (uint axis = 0; axis < 3; axis++) {
     DifferentialPair<float3> dp =
       diffPair(float3(p.x, p.y, p.z), float3(axis == 0 ? 1.0 : 0.0, axis == 1 ? 1.0 : 0.0, axis == 2 ? 1.0 : 0.0));
-    DifferentialPair<float> dpOut = fwd_diff(scene.sdf)(dp);
+    DifferentialPair<float> dpOut = fwd_diff(sceneFn.sdf)(dp);
     normal[axis] = dpOut.d;
   }
 
@@ -256,20 +354,19 @@ float3 exactNormal<T>(T scene, in float3 p) where T : IFloatSdfScene {
 
 static const int maxSteps = 512;
 Optional<float3> sphereTrace<T>(
-	T scene, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount
+	T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount
 ) where T : IFloatSdfScene {
   const float baseHitEps = 1e-6; // How close to an object should the ray be for it to hit
-	// NOTE: Recheck minHitEps and maxHitEps. These distances were setup when the clamping of hitEps was broken (wrong arg order).
 	const float minHitEps = 1e-8; // This might be too small
 	const float maxHitEps = 1e-2;
 	const float maxEpsStepCountScaling = 5000;
-  // TODO: Dynamic far clip distance based on scene contents?
+  // TODO: Dynamic far clip distance based on sceneFn contents?
   const float farClipDist = 100.0;
 
   rayDist = 0;
 	for (stepCount = 0; stepCount < maxSteps; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
-    distToClosest = scene.sdf(pos);
+    distToClosest = sceneFn.sdf(pos);
 		// Dynamic ray hit epsilon. Scale by dist to keep ray from missing far away hits and
 		// by step budget to prevent missing surfaces at grazing angles. 
 		float stepCountScale = 1.0 + maxEpsStepCountScaling * pow(stepCount / float(maxSteps), 10); // On the GPU, pow might be heavy?
@@ -288,31 +385,32 @@ Optional<float3> sphereTrace<T>(
 	return none;
 }
 
-void renderScene<T>(T scene, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
+void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
   const float3 lightDirection = normalize(float3(-5.0, -5.0, -3.0));
 	const float numericNormalMinEps = 8e-6;
 
 	float rayDist, lastStepLen;
 	uint stepCount;
-	var hitOpt = sphereTrace(scene, sceneUbo.camPos, rayDirection, rayDist, lastStepLen, stepCount);
+	var hitOpt = sphereTrace(sceneFn, scene.camPos, rayDirection, rayDist, lastStepLen, stepCount);
 	if (hitOpt.hasValue) {
 		let hitPos = hitOpt.value;
+		// NOTE: Using doubles to calculate normals could make shimmering normals at edges much rarer
 		float3 safePos = hitPos - (lastStepLen * rayDirection);
-		float3 worldNormalHit = exactNormal(scene, hitPos);
-		float3 worldNormalSafe = calcNormal(scene, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
-		float3 worldNormal = dot(worldNormalHit, -sceneUbo.camForward) > dot(worldNormalSafe, -sceneUbo.camForward)
+		float3 worldNormalHit = exactNormal(sceneFn, hitPos);
+		float3 worldNormalSafe = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
+		float3 worldNormal = dot(worldNormalHit, -scene.camForward) > dot(worldNormalSafe, -scene.camForward)
 														? worldNormalHit
 														: worldNormalSafe;
 
-		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * sceneUbo.hitColor;
+		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * scene.hitColor;
 
 		switch(debugOpt.mode) {
 			case RenderMode.ShadedScene:
 				output.color = float4(diffuseColor, 1.0);
 				return;
 			case RenderMode.UnlitScene:
-				output.color = float4(sceneUbo.hitColor, 1.0);
+				output.color = float4(scene.hitColor, 1.0);
 				return;
 			case RenderMode.DebugNormals:
 				output.color = float4(worldNormal, 1.0);
@@ -326,7 +424,7 @@ void renderScene<T>(T scene, inout FragmentOutput output, float3 rayDirection) w
 	}
 
   // Set to background color to prevent weird colors for pixels with no hits
-  output.color = float4(sceneUbo.bgColor, 1.0);
+  output.color = float4(scene.bgColor, 1.0);
 }
 
 // Check the fragment shader code to make sure it matches a basic raytraced camera setup. This was done very quickly to
@@ -336,9 +434,9 @@ FragmentOutput fragmentMain(VertexOutput input) {
   FragmentOutput output = (FragmentOutput)0;
 
   float2 uvNdc = input.fragUv * 2.0 - 1.0;
-  uvNdc.x *= sceneUbo.aspect;
-  float z = 1.0 / tan(radians(sceneUbo.fov) * 0.5); // Image plane depth
-  float3 rayDirection = normalize(sceneUbo.camForward * z + sceneUbo.camRight * uvNdc.x + sceneUbo.camUp * uvNdc.y);
+  uvNdc.x *= scene.aspect;
+  float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
+  float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
 	renderScene(ClaudeBuildingScene(), output, rayDirection);
 
