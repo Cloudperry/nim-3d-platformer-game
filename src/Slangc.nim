@@ -6,10 +6,10 @@ type
   TargetFormat* = enum
     Glsl = "glsl", SpirV = "spirv"
   SlangcOptions* = object
-    inFile*, entryPoint*, outFile*: string
+    inFile, entryPoint*, outFile*: string
     slangPath*: string = "/opt/shader-slang-bin/bin"
-    target*: TargetFormat
-    stage*: ShaderStage
+    target: TargetFormat
+    stage: ShaderStage
 
 proc short(s: ShaderStage): string = 
   case s
@@ -17,10 +17,22 @@ proc short(s: ShaderStage): string =
   of Vertex: "Vert"
   of Compute: "Comp"
 
+proc updateOutFile(o: var SlangcOptions) =
+  let inputName = o.inFile.split(".")
+  o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target}"
 proc fillDefaultOpts(o: var SlangcOptions) =
   if o.outFile.len == 0:
-    let inputName = o.inFile.split(".")
-    o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target}"
+    o.updateOutFile()
+
+proc `inFile=`*(o: var SlangcOptions, path: string) =
+  o.inFile = path
+  o.updateOutFile()
+proc `target=`*(o: var SlangcOptions, target: TargetFormat) =
+  o.target = target
+  o.updateOutFile()
+proc `stage=`*(o: var SlangcOptions, s: ShaderStage) =
+  o.stage = s
+  o.updateOutFile()
 
 # TODO: Check if Slang is already in PATH and use it if it is
 proc makeSlangCmd(o: var SlangcOptions): string =

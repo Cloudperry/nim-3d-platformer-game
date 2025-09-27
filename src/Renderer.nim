@@ -334,7 +334,11 @@ proc compileShaders(slangPath = "", mode: RendererMode) =
   of Rasterizer: "RasterizedRenderer.slang"
   of SdfRenderer: "SdfRenderer.slang"
   
-  var opts = SlangcOptions(inFile: shadersDir / shaderFile, stage: Vertex, entryPoint: "vertexMain", target: Glsl)
+  # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API better by adding init proc.
+  var opts = SlangcOptions(entryPoint: "vertexMain")
+  opts.stage = Vertex
+  opts.inFile = shadersDir / shaderFile
+  opts.target = Glsl
   if slangPath.len > 0: opts.slangPath = slangPath
   state.vertexShaderText = compileShaderOrRaise(opts)
 
