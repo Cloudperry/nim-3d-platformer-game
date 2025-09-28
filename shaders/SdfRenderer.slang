@@ -27,63 +27,41 @@ struct Material {
 	float metalness; // How reflective is the surface? Controls how much of diffuse/specular lighting the surface will have.
 }
 
+#define READ_FLOAT(data, idx) asfloat((data)[idx])
+
+#define READ_FLOAT2(data, idx) float2( \
+    asfloat((data)[idx]),         \
+    asfloat((data)[(idx)+1])      \
+)
+
+#define READ_FLOAT3(data, idx) float3( \
+    asfloat((data)[idx]),         \
+    asfloat((data)[(idx)+1]),     \
+    asfloat((data)[(idx)+2])      \
+)
+
+#define WRITE_FLOAT(data, idx, val) \
+    (data)[(idx)] = asuint((val))
+
+#define WRITE_FLOAT2(data, idx, val) \
+    (data)[(idx)]     = asuint((val).x); \
+    (data)[(idx) + 1] = asuint((val).y)
+
+#define WRITE_FLOAT3(data, idx, val) \
+    (data)[(idx)]     = asuint((val).x); \
+    (data)[(idx) + 1] = asuint((val).y); \
+    (data)[(idx) + 2] = asuint((val).z)
+
 struct SdfProgramData {
 	Material materialData[256];
 	// This is enough for about 8000 shapes in the worst case, but it should be enough for most SDF scenes that can run in real-time
 	uint args[65536]; 
 	// Index to params where instruction outputs start. For implementing safety mechanisms together with isLeafNode.
 	// uint16_t instructionOutputsStart;
-	float readFloat(uint paramIndex) {
-		return asfloat(args[paramIndex]);
-	}
-	float2 readFloat2(uint paramIndex) {
-		return float2(
-			asfloat(args[paramIndex]),
-			asfloat(args[paramIndex + 1]),
-		);
-	}
-	float3 readFloat3(uint paramIndex) {
-		return float3(
-			asfloat(args[paramIndex]),
-			asfloat(args[paramIndex + 1]),
-			asfloat(args[paramIndex + 2])
-		);
-	}
 }
 
 struct SdfProgramRuntimeData {
-	uint outputs[10];
-	float readFloat(uint paramIndex) {
-		return asfloat(outputs[paramIndex]);
-	}
-	float2 readFloat2(uint paramIndex) {
-		return float2(
-			asfloat(outputs[paramIndex]),
-			asfloat(outputs[paramIndex + 1]),
-		);
-	}
-	float3 readFloat3(uint paramIndex) {
-		return float3(
-			asfloat(outputs[paramIndex]),
-			asfloat(outputs[paramIndex + 1]),
-			asfloat(outputs[paramIndex + 2])
-		);
-	}
-	[mutating]
-	void writeFloat(uint paramIndex, float value) {
-		outputs[paramIndex] = asuint(value);
-	}
-	[mutating]
-	void writeFloat2(uint paramIndex, float2 value) {
-		outputs[paramIndex] = asuint(value.x);
-		outputs[paramIndex + 1] = asuint(value.y);
-	}
-	[mutating]
-	void writeFloat3(uint paramIndex, float3 value) {
-		outputs[paramIndex] = asuint(value.x);
-		outputs[paramIndex + 1] = asuint(value.y);
-		outputs[paramIndex + 2] = asuint(value.z);
-	}
+	uint outputs[30];
 }
 
 struct SdfInstruction {
@@ -296,137 +274,144 @@ struct ClaudeBuildingScene : IFloatSdfScene {
 // Operations eval
 float evalAddOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
 	return opUnion(d1, d2);
 }
 float evalSubOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
 	return opSubtraction(d1, d2);
 }
 float evalInterOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
 	return opIntersection(d1, d2);
 }
 float evalXorOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
 	return opXor(d1, d2);
 }
 float evalSmoothAddOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
-	k = sdfProgData[0].readFloat(insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
 	return opSmoothUnion(d1, d2, k);
 }
 float evalSmoothSubOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
-	k = sdfProgData[0].readFloat(insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
 	return opSmoothSubtraction(d1, d2, k);
 }
 float evalSmoothInterOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = runtimeData.readFloat(insn.runtimeArgsIndex); d2 = runtimeData.readFloat(insn.runtimeArgsIndex + 1);
-	k = sdfProgData[0].readFloat(insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
 	return opSmoothIntersection(d1, d2, k);
 }
 
 // Shapes eval
-float evalSphere(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalSphere(SdfInstruction insn, float3 rayP) {
 	float3 p; float r;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); r = sdfProgData[0].readFloat(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdSphere(rayP - p, r);
 }
-float evalBox(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); halfExtent = sdfProgData[0].readFloat3(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdBox(rayP - p, halfExtent);
 }
-float evalRoundBox(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalRoundBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent; float r;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); halfExtent = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	r = sdfProgData[0].readFloat(insn.argsIndex + 6);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 6);
 	return sdRoundBox(rayP - p, halfExtent, r);
 }
-float evalBoxFrame(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalBoxFrame(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 b; float e;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); b = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	e = sdfProgData[0].readFloat(insn.argsIndex + 6);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	e = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 6);
 	return sdBoxFrame(rayP - p, b, e);
 }
-float evalCone(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 c; float h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); c = sdfProgData[0].readFloat2(insn.argsIndex + 3);
-	h = sdfProgData[0].readFloat(insn.argsIndex + 5);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); c = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 5);
 	return sdCone(rayP - p, c, h);
 }
-float evalCappedCone(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalCappedCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float ra; float rb;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); a = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	b = sdfProgData[0].readFloat3(insn.argsIndex + 6); ra = sdfProgData[0].readFloat(insn.argsIndex + 9);
-	rb = sdfProgData[0].readFloat(insn.argsIndex + 10);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); ra = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
+	rb = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 10);
 	return sdCappedCone(rayP - p, a, b, ra, rb);
 }
-float evalHexPrism(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalHexPrism(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); h = sdfProgData[0].readFloat2(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdHexPrism(rayP - p, h);
 }
-float evalTriPrism(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalTriPrism(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); h = sdfProgData[0].readFloat2(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdTriPrism(rayP - p, h);
 }
-float evalCapsule(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalCapsule(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float r;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); a = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	b = sdfProgData[0].readFloat3(insn.argsIndex + 6);
-	r = sdfProgData[0].readFloat(insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
 	return sdCapsule(rayP - p, a, b, r);
 }
-float evalCappedCylinder(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalCappedCylinder(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float r;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); a = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	b = sdfProgData[0].readFloat3(insn.argsIndex + 6);
-	r = sdfProgData[0].readFloat(insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
 	return sdCappedCylinder(rayP - p, a, b, r);
 }
-float evalRoundedCylinder(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalRoundedCylinder(SdfInstruction insn, float3 rayP) {
 	float3 p; float ra; float rb; float h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); ra = sdfProgData[0].readFloat(insn.argsIndex + 3);
-	rb = sdfProgData[0].readFloat(insn.argsIndex + 4);
-	h = sdfProgData[0].readFloat(insn.argsIndex + 5);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); ra = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
+	rb = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 4);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 5);
 	return sdRoundedCylinder(rayP - p, ra, rb, h);
 }
-float evalCutSphere(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalCutSphere(SdfInstruction insn, float3 rayP) {
 	float3 p; float r; float h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); r = sdfProgData[0].readFloat(insn.argsIndex + 3);
-	h = sdfProgData[0].readFloat(insn.argsIndex + 4);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 4);
 	return sdCutSphere(rayP - p, r, h);
 }
-float evalOctahedron(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalOctahedron(SdfInstruction insn, float3 rayP) {
 	float3 p; float s;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); s = sdfProgData[0].readFloat(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); s = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdOctahedron(rayP - p, s);
 }
-float evalPyramid(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalPyramid(SdfInstruction insn, float3 rayP) {
 	float3 p; float h;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); h = sdfProgData[0].readFloat(insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
 	return sdPyramid(rayP - p, h);
 }
-float evalTriangle(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalTriangle(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float3 c;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); a = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	b = sdfProgData[0].readFloat3(insn.argsIndex + 6); c = sdfProgData[0].readFloat(insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 9);
 	return udTriangle(rayP - p, a, b, c);
 }
-float evalQuad(SdfInstruction insn, SdfProgramRuntimeData runtimeData, float3 rayP) {
+float evalQuad(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float3 c; float3 d;
-	p = sdfProgData[0].readFloat3(insn.argsIndex); a = sdfProgData[0].readFloat3(insn.argsIndex + 3);
-	b = sdfProgData[0].readFloat3(insn.argsIndex + 6); c = sdfProgData[0].readFloat(insn.argsIndex + 9);
-	d = sdfProgData[0].readFloat(insn.argsIndex + 12);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 9);
+	d = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 12);
 	return udQuad(rayP - p, a, b, c, d);
 }
 
@@ -436,7 +421,7 @@ struct SdfProgramScene : IFloatSdfScene {
 	static float sdf(float3 p) {
 		uint insnCount, stride; sdfProg.GetDimensions(insnCount, stride);
 		SdfProgramRuntimeData runtimeData = {0};
-		float res;
+		float res = float.maxValue;
 		for (uint i = 0; i < insnCount; i++) {
 			SdfInstruction insn = sdfProg[i];
 
@@ -448,25 +433,25 @@ struct SdfProgramScene : IFloatSdfScene {
 				case SdfInstructionKind.SmoothAddOp: res = evalSmoothAddOp(insn, runtimeData); break;
 				case SdfInstructionKind.SmoothSubOp: res = evalSmoothSubOp(insn, runtimeData); break;
 				case SdfInstructionKind.SmoothInterOp: res = evalSmoothInterOp(insn, runtimeData); break;
-				case SdfInstructionKind.Sphere: res = evalSphere(insn, runtimeData, p); break;
-				case SdfInstructionKind.Box: res = evalBox(insn, runtimeData, p); break;
-				case SdfInstructionKind.RoundBox: res = evalRoundBox(insn, runtimeData, p); break;
-				case SdfInstructionKind.BoxFrame: res = evalBoxFrame(insn, runtimeData, p); break;
-				case SdfInstructionKind.Cone: res = evalCone(insn, runtimeData, p); break;
-				case SdfInstructionKind.CappedCone: res = evalCappedCone(insn, runtimeData, p); break;
-				case SdfInstructionKind.HexPrism: res = evalHexPrism(insn, runtimeData, p); break;
-				case SdfInstructionKind.TriPrism: res = evalTriPrism(insn, runtimeData, p); break;
-				case SdfInstructionKind.Capsule: res = evalCapsule(insn, runtimeData, p); break;
-				case SdfInstructionKind.CappedCylinder: res = evalCappedCylinder(insn, runtimeData, p); break;
-				case SdfInstructionKind.RoundedCylinder: res = evalRoundedCylinder(insn, runtimeData, p); break;
-				case SdfInstructionKind.CutSphere: res = evalCutSphere(insn, runtimeData, p); break;
-				case SdfInstructionKind.Octahedron: res = evalOctahedron(insn, runtimeData, p); break;
-				case SdfInstructionKind.Pyramid: res = evalPyramid(insn, runtimeData, p); break;
-				case SdfInstructionKind.Triangle: res = evalTriangle(insn, runtimeData, p); break;
-				case SdfInstructionKind.Quad: res = evalQuad(insn, runtimeData, p); break;
+				case SdfInstructionKind.Sphere: res = evalSphere(insn, p); break;
+				case SdfInstructionKind.Box: res = evalBox(insn, p); break;
+				case SdfInstructionKind.RoundBox: res = evalRoundBox(insn, p); break;
+				case SdfInstructionKind.BoxFrame: res = evalBoxFrame(insn, p); break;
+				case SdfInstructionKind.Cone: res = evalCone(insn, p); break;
+				case SdfInstructionKind.CappedCone: res = evalCappedCone(insn, p); break;
+				case SdfInstructionKind.HexPrism: res = evalHexPrism(insn, p); break;
+				case SdfInstructionKind.TriPrism: res = evalTriPrism(insn, p); break;
+				case SdfInstructionKind.Capsule: res = evalCapsule(insn, p); break;
+				case SdfInstructionKind.CappedCylinder: res = evalCappedCylinder(insn, p); break;
+				case SdfInstructionKind.RoundedCylinder: res = evalRoundedCylinder(insn, p); break;
+				case SdfInstructionKind.CutSphere: res = evalCutSphere(insn, p); break;
+				case SdfInstructionKind.Octahedron: res = evalOctahedron(insn, p); break;
+				case SdfInstructionKind.Pyramid: res = evalPyramid(insn, p); break;
+				case SdfInstructionKind.Triangle: res = evalTriangle(insn, p); break;
+				case SdfInstructionKind.Quad: res = evalQuad(insn, p); break;
 			}
 
-			runtimeData.writeFloat(insn.outputIndex, res);
+			WRITE_FLOAT(runtimeData.outputs, insn.outputIndex, res);
 		}
 
 		return res;

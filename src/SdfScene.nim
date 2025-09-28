@@ -53,6 +53,7 @@ proc `+`*(p: ParamIndex, offset: int): ParamIndex = ParamIndex(p.uint32 + offset
 proc `+=`*(p: var ParamIndex, offset: int) =
   p = ParamIndex(p.uint16 + offset.uint32)
 proc `div`*(p: ParamIndex, n: int): ParamIndex = ParamIndex(p.uint32 div n.uint32)
+proc `mod`*(p: ParamIndex, n: int): ParamIndex = ParamIndex(p.uint32 mod n.uint32)
 proc `-`*(p1, p2: ParamIndex): ParamIndex {.borrow.}
 proc `<`*(p1, p2: ParamIndex): bool {.borrow.}
 proc `==`*(p1, p2: ParamIndex): bool {.borrow.}
@@ -108,6 +109,7 @@ proc addInsnWithOutput(prog: var SceneBuilder, i: SdfInstruction): ParamIndex =
   prog.instructions[].add i
   echo i
   prog.nextOutputI += 1
+  prog.nextOutputI = prog.nextOutputI mod 30
 
 # These functions return the output parameter slot where their results will be written
 # TODO: Generate from function signature using macros?
