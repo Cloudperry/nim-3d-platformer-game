@@ -6,3 +6,6 @@
 
 # Ignore Slang generated .glsl files
 *.glsl
+
+# Ignore RenderDoc files
+*.cap
