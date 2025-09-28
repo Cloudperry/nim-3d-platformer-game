@@ -1,4 +1,4 @@
-import std/[strformat]
+import std/[strformat, options]
 import pkg/[glm]
 import ./glad/gl
 import GlUtils 
@@ -26,10 +26,10 @@ struct SdfProgramData {
 
 struct SdfInstruction {
 	SdfInstructionKind kind;
-	uint16_t paramsIndex; // Index to array that has both the outputs of this SDF program and the input parameters
+	uint16_t argsIndex; // Index to array that has both the outputs of this SDF program and the input parameters
 	uint16_t outputIndex; // Index to the program outputs array where this instruction will put its return value to
 	uint8_t materialIndex; // Zero for SDF nodes that aren't a shape
-	uint8_t paramsSize; // How many bytes starting from paramsIndex are parameters for this instruction?
+	uint8_t paramsSize; // How many bytes starting from argsIndex are parameters for this instruction?
 	uint8_t _pad[6];
 	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
 	// Non-leaf nodes should only read results of previous instructions.
@@ -66,7 +66,8 @@ makeGlObjects(std430Alignment, AlignToSize):
       params: array[65536, uint32]
     SdfInstruction* = object
       kind: SdfInstructionKind
-      paramsIndex: ParamIndex
+      argsIndex: ParamIndex
+      runtimeArgsIndex: ParamIndex
       outputIndex: ParamIndex
       materialIndex: MaterialIndex
       paramsSize: uint32
@@ -78,15 +79,18 @@ const outputsStartI: ParamIndex = ParamIndex(uint16.high div 2)
 type
   SceneBuilder* = object
     nextParamI: ParamIndex = 0.ParamIndex
-    nextOutputI: ParamIndex = outputsStartI
+    nextOutputI: ParamIndex = 0.ParamIndex
     data: ref SdfProgramData
     instructions: ref seq[SdfInstruction]
 
 proc initSceneBuilder*(data: ref SdfProgramData, instructions: ref seq[SdfInstruction]): SceneBuilder =
   SceneBuilder(data: data, instructions: instructions)
 
-proc makeInsn(kind: SdfInstructionKind; paramsIndex, outputIndex: ParamIndex; paramsSize: uint32): SdfInstruction =
-  SdfInstruction(kind: kind, paramsIndex: paramsIndex, outputIndex: outputIndex, paramsSize: paramsSize)
+proc makeInsn(
+  kind: SdfInstructionKind; argsIndex, outputIndex: ParamIndex; paramsSize: uint32, runtimeArgsIndex = ParamIndex.none
+): SdfInstruction =
+  result = SdfInstruction(kind: kind, argsIndex: argsIndex, outputIndex: outputIndex, paramsSize: paramsSize)
+  if runtimeArgsIndex.isSome: result.runtimeArgsIndex = runtimeArgsIndex.get
 
 template makeUintParams(arr: untyped) =
   const arrSize = sizeof(arr[0]) div sizeof(uint32) * arr.len
@@ -179,22 +183,28 @@ proc assertContiguousInputs(inputs: openArray[ParamIndex]) =
              "The GPU SDF instruction interpreter can only read parameters in order.")
 proc makeAddOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(AddOp, d1Index, prog.nextOutputI, 2)
+  result = prog.addInsnWithOutput makeInsn(AddOp, ParamIndex.high, prog.nextOutputI, 2, d1Index.some)
 proc makeSubOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SubOp, d1Index, prog.nextOutputI, 2)
+  result = prog.addInsnWithOutput makeInsn(SubOp, ParamIndex.high, prog.nextOutputI, 2, d1Index.some)
 proc makeInterOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(InterOp, d1Index, prog.nextOutputI, 2)
+  result = prog.addInsnWithOutput makeInsn(InterOp, ParamIndex.high, prog.nextOutputI, 2, d1Index.some)
 proc makeXorOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(XorOp, d1Index, prog.nextOutputI, 2)
-proc makeSmoothAddOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
+  result = prog.addInsnWithOutput makeInsn(XorOp, ParamIndex.high, prog.nextOutputI, 2, d1Index.some)
+proc makeSmoothAddOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex; k: GLfloat): ParamIndex =
+  makeUintParams [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothAddOp, d1Index, prog.nextOutputI, 2)
-proc makeSmoothSubOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
+  result = prog.addInsnWithOutput makeInsn(SmoothAddOp, prog.nextParamI, prog.nextOutputI, 2, d1Index.some)
+  prog.addParams params
+proc makeSmoothSubOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex; k: GLfloat): ParamIndex =
+  makeUintParams [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothSubOp, d1Index, prog.nextOutputI, 2)
-proc makeSmoothInterOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex): ParamIndex =
+  result = prog.addInsnWithOutput makeInsn(SmoothSubOp, prog.nextParamI, prog.nextOutputI, 2, d1Index.some)
+  prog.addParams params
+proc makeSmoothInterOp*(prog: var SceneBuilder; d1Index, d2Index: ParamIndex; k: GLfloat): ParamIndex =
+  makeUintParams [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothInterOp, d1Index, prog.nextOutputI, 2)
+  result = prog.addInsnWithOutput makeInsn(SmoothInterOp, prog.nextParamI, prog.nextOutputI, 2, d1Index.some)
+  prog.addParams params
