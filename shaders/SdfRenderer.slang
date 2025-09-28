@@ -274,36 +274,43 @@ void evalAddOp(SdfInstruction insn) {
 	float d1; float d2;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opUnion(d1, d2);
+  writeFloat(insn.outputIndex, res);
 }
 void evalSubOp(SdfInstruction insn) {
 	float d1; float d2;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opSubtraction(d1, d2);
+  writeFloat(insn.outputIndex, res);
 }
 void evalInterOp(SdfInstruction insn) {
 	float d1; float d2;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opIntersection(d1, d2);
+  writeFloat(insn.outputIndex, res);
 }
 void evalXorOp(SdfInstruction insn) {
 	float d1; float d2;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opXor(d1, d2);
+  writeFloat(insn.outputIndex, res);
 }
 void evalSmoothAddOp(SdfInstruction insn) {
 	float d1; float d2; float k;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opSmoothUnion(d1, d2, k);
+  writeFloat(insn.outputIndex, res);
 }
 void evalSmoothSubOp(SdfInstruction insn) {
 	float d1; float d2; float k;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opSmoothSubtraction(d1, d2, k);
+  writeFloat(insn.outputIndex, res);
 }
 void evalSmoothInterOp(SdfInstruction insn) {
 	float d1; float d2; float k;
 	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
 	float res = opSmoothIntersection(d1, d2, k);
+  writeFloat(insn.outputIndex, res);
 }
 
 // Shapes eval
@@ -558,7 +565,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
 	renderScene(SdfProgramScene(), output, rayDirection);
-	let firstInsn = sceneProgram[0];
+	/*let firstInsn = sceneProgram[0];
 	let firstParamI = firstInsn.paramsIndex;
 	let boxPos = readFloat3(firstParamI);
 	let boxSize = readFloat3(firstParamI + 3);
@@ -568,7 +575,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
 		firstInsn.kind == SdfInstructionKind.Box && firstInsn.paramsIndex == 0 && firstInsn.outputIndex == 32767 && firstInsn.paramsSize == 6
 	) {
 		output.color = float4(0, 1, 0, 1);
-	}
+	}*/
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);

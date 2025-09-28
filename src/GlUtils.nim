@@ -267,7 +267,7 @@ proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum]
   else:
     s.usageHint
   when T is object:
-    glBufferData(bufferType, sizeof T, addr s.data, usageHint)
+    glBufferData(bufferType, sizeof T, addr s.data[], usageHint)
   elif T is seq[object]:
     glBufferData(bufferType, s.data[].len * sizeof(s.data[0]), addr s.data[0], usageHint)
 
