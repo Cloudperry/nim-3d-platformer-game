@@ -1,4 +1,4 @@
-import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros]
+import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros, math]
 import ./glad/gl
 import pkg/glm
 
@@ -90,11 +90,39 @@ const std140Alignment* = collect:
        Vec4ui.getTypeImpl().repr, Vec4b.getTypeImpl().repr,
        Mat2f.getTypeImpl().repr, Mat3f.getTypeImpl().repr,
        Mat4f.getTypeImpl().repr, Mat2d.getTypeImpl().repr], 16),
+    # Types aligned to 32 bytes
     (@[Mat3d.getTypeImpl().repr, Mat4d.getTypeImpl().repr], 32),
 
   ]:
     for t in list:
       {t: align}
+
+const std430Alignment* = collect:
+  for (list, align) in [
+    # Types aligned to 4 bytes
+    (@[GLfloat.getTypeImpl().repr, GLint.getTypeImpl().repr,
+       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr, "enum"], 4),
+    # Types aligned to 8 bytes
+    (@[Vec2f.getTypeImpl().repr, Vec2i.getTypeImpl().repr,
+       Vec2ui.getTypeImpl().repr, Vec2b.getTypeImpl().repr,
+       GLdouble.getTypeImpl().repr], 8),
+    # Types aligned to 12 bytes
+    (@[Vec3f.getTypeImpl().repr, Vec3i.getTypeImpl().repr,
+       Vec3ui.getTypeImpl().repr, Vec3b.getTypeImpl().repr], 12),
+    # Types aligned to 16 bytes (matrices and vectors below this may be wrong for std430)
+    (@[Vec4f.getTypeImpl().repr, Vec4i.getTypeImpl().repr,
+       Vec4ui.getTypeImpl().repr, Vec4b.getTypeImpl().repr,
+       Mat2f.getTypeImpl().repr, Mat3f.getTypeImpl().repr,
+       Mat4f.getTypeImpl().repr, Mat2d.getTypeImpl().repr], 16),
+    # Types aligned to 32 bytes
+    (@[Mat3d.getTypeImpl().repr, Mat4d.getTypeImpl().repr], 32),
+
+  ]:
+    for t in list:
+      {t: align}
+
+type UnknownTypeAlignment* = enum
+  RaiseError, Ignore, AlignToSize
 
 proc desym(n: NimNode) =
   for i, x in n:
@@ -104,7 +132,17 @@ proc desym(n: NimNode) =
     else:
       desym(x)
 
-macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untyped =
+proc elementSize(t: NimNode): int {.compileTime.} =
+  ## Get the element size of a typed NimNode representing an array
+  let T = t.getType
+  if T.kind == nnkBracketExpr and $T[0] == "array":
+    result = T[2].getSize()
+  else:
+    error("elementSize: expected an array type, got " & $T.repr, t)
+
+macro makeGlObjects*(
+  alignTable: static Table[string, int], unknownAlignment: static UnknownTypeAlignment = RaiseError, body: typed
+): untyped =
   for n in body:
     if n.kind == nnkTypeSection:
       for typeDef in n:
@@ -122,12 +160,25 @@ macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untype
                 if fieldDefSection.kind == nnkIdentDefs:
                   let typeNode = fieldDefSection[^2]
                   var typeImplStr = typeNode.getTypeImpl().repr
-                  # NOTE: Splitting by newline her is a nasty hack to be able to stuff enums in the alignment table
+                  # NOTE: Splitting by newline here is a nasty hack to be able to stuff enums in the alignment table
                   if typeImplStr.startsWith("enum"): typeImplStr = typeImplStr.split("\n")[0] 
-                  let alignment = alignTable.getOrDefault(typeImplStr)
+                  var alignment = alignTable.getOrDefault(typeImplStr)
                   if alignment == int.default:
-                    raise newException(Exception, fmt"Padding not defined for type {typeImplStr.repr}. " &
-                    fmt"Define padding for it in your own alignment table (or add it in {currentSourcePath()}).")
+                    case unknownAlignment
+                    of Ignore:
+                      discard
+                    of AlignToSize:
+                      let sizeAlignment = if typeNode.kind == nnkSym:
+                        typeNode.getSize()
+                      else:
+                        typeNode.elementSize()
+                      if sizeAlignment <= 0:
+                        raise newException(Exception, fmt"Failed to pad {typeNode} to size, because Nim doesn't know its size.")
+                      else:
+                        alignment = sizeAlignment
+                    of RaiseError:
+                      raise newException(Exception, fmt"Padding not defined for type {typeImplStr.repr}. " &
+                      fmt"Define padding for it in your own alignment table (or add it in {currentSourcePath()}).")
                   
                   for i in 0 .. fieldDefSection.len - 3:
                     if fieldDefSection[i].kind == nnkPragmaExpr:
@@ -135,16 +186,18 @@ macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untype
                       continue
                     when defined(glLayoutGenDbg):
                       echo fmt"Found field `{fieldDefSection[i]}` that will get aligned to {alignment}"
-
-                    fieldDefSection[i] = nnkPragmaExpr.newTree(
-                      fieldDefSection[i],
-                      nnkPragma.newTree(
-                        nnkCall.newTree(
-                          newIdentNode("align"),
-                          newLit(alignment)
+                    
+                    # If alignment is zero, it means that unknownAlignment is set to Ignore and this field doesn't have alignment
+                    if alignment != 0 and alignment in int16.low .. int16.high:
+                      fieldDefSection[i] = nnkPragmaExpr.newTree(
+                        fieldDefSection[i],
+                        nnkPragma.newTree(
+                          nnkCall.newTree(
+                            newIdentNode("align"),
+                            newLit(alignment)
+                          )
                         )
                       )
-                    )
                 else:
                   echo &"OpenGL object Error: Invalid field {{\n{toStrLit(fieldDefSection)}\n}} (with node {fieldDefSection.kind})"
 
@@ -153,11 +206,11 @@ macro makeGlObjects*(alignTable: static Table[string, int], body: typed): untype
   when defined(glLayoutGenDbg): echo &"Generated objects with alignment {{\n{toStrLit(result)}\n\n}}"
 
 # ======================================== UBO/SSBO class ========================================
-type ShaderDataBufferRef*[T] = ref object
+type ShaderDataBufferRef*[T: object | seq[object]] = ref object
   id*: GLuint
   shaderSlots: Table[GLuint, int]
   bufferType, usageHint: GLenum
-  data*: T
+  data*: ref T
 
 const supportedBufferTypes = [GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER]
 const validUsageHints = [
@@ -184,13 +237,14 @@ proc initShaderDataBuffer*[T](
   result.shaderSlots = initTable[GLuint, int]()
   result.shaderSlots[targetShader.id] = shaderSlot
   result.usageHint = usageHint
+  result.data = new T
 
   glGenBuffers(1, addr result.id)
   glBindBuffer(bufferType, result.id)
   var dataRef: ptr T = nil
   if data.isSome:
-    result.data = data.get
-    dataRef = addr result.data
+    result.data[] = data.get
+    dataRef = addr result.data[]
   glBufferData(bufferType, sizeof T, dataRef, result.usageHint)
   glBindBufferBase(bufferType, shaderSlot, result.id)
 
@@ -212,7 +266,10 @@ proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum]
     usageHint.get
   else:
     s.usageHint
-  glBufferData(bufferType, sizeof T, addr s.data, usageHint)
+  when T is object:
+    glBufferData(bufferType, sizeof T, addr s.data, usageHint)
+  elif T is seq[object]:
+    glBufferData(bufferType, s.data[].len * sizeof(s.data[0]), addr s.data[0], usageHint)
 
 proc uploadRegion*[T](b: ShaderDataBufferRef[T]; offset, size: int; regionStartPtr: pointer) =
   b.glBind()

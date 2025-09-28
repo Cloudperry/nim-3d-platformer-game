@@ -3,7 +3,7 @@ import std/times except `getTime`
 import pkg/[glm, glfw, cligen]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
-import GlUtils, Slangc, Scene, Logger, Shapes
+import GlUtils, Slangc, Scene, Logger, Shapes, SdfScene
 
 type
   RendererMode = enum
@@ -69,7 +69,7 @@ proc commonUpdate(win: Window, frame: var FrameState) =
   )
 
 # ======================================== Rasterizer ========================================
-makeGlObjects(std140Alignment):
+makeGlObjects(std140Alignment, RaiseError):
   type GpuSceneUniforms = object
     cameraPos: Vec3f
     # Just one model to world transform for now, separate transforms for each model will be needed later
@@ -196,7 +196,7 @@ proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraA
 # ======================================== SDF renderer (sphere tracer) ========================================
 type RenderMode {.size: sizeof(uint32).} = enum
   ShadedScene, UnlitScene, DebugNormals, DebugStepCounts
-makeGlObjects(std140Alignment):
+makeGlObjects(std140Alignment, RaiseError):
   type GpuSdfSceneUniforms = object
     aspect: GLfloat 
     camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
@@ -213,6 +213,9 @@ type
     shader: ShaderRef
     sceneUbo: ShaderDataBufferRef[GpuSdfSceneUniforms]
     debugOptUbo: ShaderDataBufferRef[DebugSettings]
+    sceneProgramData: ShaderDataBufferRef[SdfProgramData]
+    sceneProgram: ShaderDataBufferRef[seq[SdfInstruction]]
+    sceneBuilder: SceneBuilder
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
 
@@ -229,6 +232,13 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   # This could probably be GL_STATIC_DRAW as its updated veery rarely, but OpenGL complained when updating it
   sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_STATIC_DRAW, data = SdfProgramData().some)
+  sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_STATIC_DRAW, data = emptySdfProgram().some)
+  sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
+
+  let outerBox = sdfRenderer.sceneBuilder.makeBox(vec3f(0, 0, 0), vec3f(10, 4, 10))
+  let innerBox = sdfRenderer.sceneBuilder.makeBox(vec3f(0, 0, 0), vec3f(9, 3, 9))
+  let room = sdfRenderer.sceneBuilder.makeInterOp(outerBox, innerBox)
 
   let vertices = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
@@ -279,6 +289,8 @@ proc drawSdfRenderer(win: Window) =
   sdfRenderer.sceneUbo.setField(fov, 80)
   state.camera.setUniforms()
 
+  sdfRenderer.sceneProgramData.upload()
+  sdfRenderer.sceneProgram.upload()
   sdfRenderer.imagePlaneVao.use()
   glDrawArrays(GL_TRIANGLES, 0, 6)
 
@@ -294,11 +306,11 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
       let monitorArea = state.monitor.workArea()
       let monitorMode = state.monitor.videoMode()
       state.prevWinProps = (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
-      logger.log fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
+      #logger.log fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
       win.monitor = (state.monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)
     else:
       let winProps = (state.prevWinProps.x, state.prevWinProps.y, state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate)
-      logger.log fmt"Going out of fullscreen {winProps}"
+      #logger.log fmt"Going out of fullscreen {winProps}"
       win.monitor = (
         newMonitor(nil), state.prevWinProps.x, state.prevWinProps.y,
         state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate
@@ -372,7 +384,6 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   of Rasterizer: win.windowSizeCb = sizeCbRasterizer
   of SdfRenderer: win.windowSizeCb = sizeCbSdfRenderer
   win.windowPositionCb = positionCb
-  win.pos = (150, 100)
   win.aspectRatio = (3, 2)
   win.cursorMode = cmDisabled
   state.monitor = getPrimaryMonitor()
@@ -380,7 +391,7 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   if rawMouseMotionSupported() != 0:
     win.rawMouseMotion = true
   else:
-    logger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
+    ##logger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
   glfw.swapInterval(1)
   return (win, cfg)
@@ -401,7 +412,7 @@ proc updateDrawLoop(win: Window, frame: var FrameState; updateProc, drawProc: pr
     drawProc()
     glfw.swapBuffers(win)
     let currFrameEnd = getMonoTime()
-    logger.logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
+    #logger.logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
 
     glfw.pollEvents()
 

@@ -1,6 +1,9 @@
 import Sdf;
 
 interface IFloatSdfScene {
+	static float sdf(float3 p);
+}
+interface IDifferentiableFloatSdfScene {
 	[Differentiable]
 	static float sdf(float3 p);
 }
@@ -34,10 +37,17 @@ struct SdfProgramData {
 
 struct SdfInstruction {
 	SdfInstructionKind kind;
-	uint16_t paramsIndex; // Index to array that has both the outputs of this SDF program and the input parameters
-	uint16_t outputIndex; // Index to the program outputs array where this instruction will put its return value to
-	uint8_t materialIndex; // Zero for SDF nodes that aren't a shape
-	uint8_t paramsSize; // How many bytes starting from paramsIndex are parameters for this instruction?
+	// Now that this is using packed values, kind could be packed into the first 16 bits of some packed uint
+	uint paramsIndex;
+	uint outputIndex;
+	// First 16 bits paramsIndex: Index to array that has both the outputs of this SDF program and the input parameters
+	// Next 16 bits outputIndex: Index to the program outputs array where this instruction will put its return value to
+  uint materialIndex;
+  uint paramsSize;
+	// First 8 bits materialIndex: Index to the materialData array
+	// Next 8 bits paramsSize: How many bytes starting from paramsIndex are parameters for this instruction (for debug purposes)
+	// Last 16 bits are unused
+
 	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
 	// Non-leaf nodes should only read results of previous instructions.
 	// bool isLeafNode; 
@@ -231,7 +241,7 @@ struct ClaudeBuildingScene : IFloatSdfScene {
 }
 
 float readFloat(uint paramIndex) {
-	return asfloat(sceneProgramData[0].params[paramIndex + 0]);
+	return asfloat(sceneProgramData[0].params[paramIndex]);
 }
 float2 readFloat2(uint paramIndex) {
 	return float2(
@@ -259,78 +269,187 @@ void writeFloat3(uint paramIndex, float3 value) {
 	sceneProgramData[0].params[paramIndex + 2] = asuint(value.z);
 }
 
-/*enum SdfNodeKind {
-	// Operations
-	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
-	// Shapes
-	Sphere, Box, RoundBox, BoxFrame, Cone, CappedCone, HexPrism, TriPrism, Capsule,
-	CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad
-}*/
-void evalSphere(SdfInstruction insn) {
+// Operations eval
+void evalAddOp(SdfInstruction insn) {
+	float d1; float d2;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opUnion(d1, d2);
+}
+void evalSubOp(SdfInstruction insn) {
+	float d1; float d2;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opSubtraction(d1, d2);
+}
+void evalInterOp(SdfInstruction insn) {
+	float d1; float d2;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opIntersection(d1, d2);
+}
+void evalXorOp(SdfInstruction insn) {
+	float d1; float d2;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opXor(d1, d2);
+}
+void evalSmoothAddOp(SdfInstruction insn) {
+	float d1; float d2; float k;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opSmoothUnion(d1, d2, k);
+}
+void evalSmoothSubOp(SdfInstruction insn) {
+	float d1; float d2; float k;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opSmoothSubtraction(d1, d2, k);
+}
+void evalSmoothInterOp(SdfInstruction insn) {
+	float d1; float d2; float k;
+	d1 = readFloat(insn.paramsIndex); d2 = readFloat(insn.paramsIndex + 1);
+	float res = opSmoothIntersection(d1, d2, k);
+}
+
+// Shapes eval
+void evalSphere(SdfInstruction insn, float3 rayP) {
 	float3 p; float r;
 	p = readFloat3(insn.paramsIndex); r = readFloat(insn.paramsIndex + 3);
-	float res = sdSphere(p, r);
+	float res = sdSphere(rayP - p, r);
 	writeFloat(insn.outputIndex, res);
 }
-void evalBox(SdfInstruction insn) {
+void evalBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent;
 	p = readFloat3(insn.paramsIndex); halfExtent = readFloat3(insn.paramsIndex + 3);
-	float res = sdBox(p, halfExtent);
+	float res = sdBox(rayP - p, halfExtent);
 	writeFloat(insn.outputIndex, res);
 }
-void evalRoundBox(SdfInstruction insn) {
+void evalRoundBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent; float r;
 	p = readFloat3(insn.paramsIndex); halfExtent = readFloat3(insn.paramsIndex + 3); r = readFloat(insn.paramsIndex + 6);
-	float res = sdRoundBox(p, halfExtent, r);
+	float res = sdRoundBox(rayP - p, halfExtent, r);
 	writeFloat(insn.outputIndex, res);
 }
-void evalBoxFrame(SdfInstruction insn) {
+void evalBoxFrame(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 b; float e;
 	p = readFloat3(insn.paramsIndex); b = readFloat3(insn.paramsIndex + 3); e = readFloat(insn.paramsIndex + 6);
-	float res = sdBoxFrame(p, b, e);
+	float res = sdBoxFrame(rayP - p, b, e);
 	writeFloat(insn.outputIndex, res);
 }
-void evalCone(SdfInstruction insn) {
+void evalCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 c; float h;
 	p = readFloat3(insn.paramsIndex); c = readFloat2(insn.paramsIndex + 3); h = readFloat(insn.paramsIndex + 5);
-	float res = sdCone(p, c, h);
+	float res = sdCone(rayP - p, c, h);
 	writeFloat(insn.outputIndex, res);
 }
-void evalCappedCone(SdfInstruction insn) {
+void evalCappedCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float ra; float rb;
 	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
 	ra = readFloat(insn.paramsIndex + 9); rb = readFloat(insn.paramsIndex + 10);
-	float res = sdCappedCone(p, a, b, ra, rb);
+	float res = sdCappedCone(rayP - p, a, b, ra, rb);
 	writeFloat(insn.outputIndex, res);
 }
-void evalHexPrism(SdfInstruction insn) {
+void evalHexPrism(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 h;
 	p = readFloat3(insn.paramsIndex); h = readFloat2(insn.paramsIndex + 3);
-	float res = sdHexPrism(p, h);
+	float res = sdHexPrism(rayP - p, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalTriPrism(SdfInstruction insn, float3 rayP) {
+	float3 p; float2 h;
+	p = readFloat3(insn.paramsIndex); h = readFloat2(insn.paramsIndex + 3);
+	float res = sdTriPrism(rayP - p, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalCapsule(SdfInstruction insn, float3 rayP) {
+	float3 p; float3 a; float3 b; float r;
+	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
+	r = readFloat(insn.paramsIndex + 9);
+	float res = sdCapsule(rayP - p, a, b, r);
+	writeFloat(insn.outputIndex, res);
+}
+void evalCappedCylinder(SdfInstruction insn, float3 rayP) {
+	float3 p; float3 a; float3 b; float r;
+	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
+	r = readFloat(insn.paramsIndex + 9);
+	float res = sdCappedCylinder(rayP - p, a, b, r);
+	writeFloat(insn.outputIndex, res);
+}
+void evalRoundedCylinder(SdfInstruction insn, float3 rayP) {
+	float3 p; float ra; float rb; float h;
+	p = readFloat3(insn.paramsIndex); ra = readFloat(insn.paramsIndex + 3); rb = readFloat(insn.paramsIndex + 4);
+	h = readFloat(insn.paramsIndex + 5);
+	float res = sdRoundedCylinder(rayP - p, ra, rb, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalCutSphere(SdfInstruction insn, float3 rayP) {
+	float3 p; float r; float h;
+	p = readFloat3(insn.paramsIndex); r = readFloat(insn.paramsIndex + 3); h = readFloat(insn.paramsIndex + 4);
+	float res = sdCutSphere(rayP - p, r, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalOctahedron(SdfInstruction insn, float3 rayP) {
+	float3 p; float s;
+	p = readFloat3(insn.paramsIndex); s = readFloat(insn.paramsIndex + 3);
+	float res = sdOctahedron(rayP - p, s);
+	writeFloat(insn.outputIndex, res);
+}
+void evalPyramid(SdfInstruction insn, float3 rayP) {
+	float3 p; float h;
+	p = readFloat3(insn.paramsIndex); h = readFloat(insn.paramsIndex + 3);
+	float res = sdPyramid(rayP - p, h);
+	writeFloat(insn.outputIndex, res);
+}
+void evalTriangle(SdfInstruction insn, float3 rayP) {
+	float3 p; float3 a; float3 b; float3 c;
+	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
+	c = readFloat(insn.paramsIndex + 9);
+	float res = udTriangle(rayP - p, a, b, c);
+	writeFloat(insn.outputIndex, res);
+}
+void evalQuad(SdfInstruction insn, float3 rayP) {
+	float3 p; float3 a; float3 b; float3 c; float3 d;
+	p = readFloat3(insn.paramsIndex); a = readFloat3(insn.paramsIndex + 3); b = readFloat3(insn.paramsIndex + 6);
+	c = readFloat(insn.paramsIndex + 9); d = readFloat(insn.paramsIndex + 12);
+	float res = udQuad(rayP - p, a, b, c, d);
 	writeFloat(insn.outputIndex, res);
 }
 
-// TODO: Add rest of the shapes and return the material somehow
 
-/* Commented out to avoid compile error from function not being auto-diffable
+// TODO: Add passing the correct material through all the evaluations
 struct SdfProgramScene : IFloatSdfScene {
+
 	static float sdf(float3 p) {
 		uint insnCount, stride; sceneProgram.GetDimensions(insnCount, stride);
 		for (uint i = 0; i < insnCount; i++) {
 			SdfInstruction insn = sceneProgram[i];
 			switch (insn.kind) {
-				case SdfInstructionKind.Sphere: evalSphere(insn); break;
-				case SdfInstructionKind.Box: evalBox(insn); break;
-				case SdfInstructionKind.RoundBox: evalRoundBox(insn); break;
-				case SdfInstructionKind.BoxFrame: evalBoxFrame(insn); break;
-				case SdfInstructionKind.Cone: evalCone(insn); break;
-				case SdfInstructionKind.CappedCone: evalCappedCone(insn); break;
-				case SdfInstructionKind.HexPrism: evalHexPrism(insn); break;
+				case SdfInstructionKind.AddOp: evalAddOp(insn); break;
+				case SdfInstructionKind.SubOp: evalSubOp(insn); break;
+				case SdfInstructionKind.InterOp: evalInterOp(insn); break;
+				case SdfInstructionKind.XorOp: evalXorOp(insn); break;
+				case SdfInstructionKind.SmoothAddOp: evalSmoothAddOp(insn); break;
+				case SdfInstructionKind.SmoothSubOp: evalSmoothSubOp(insn); break;
+				case SdfInstructionKind.SmoothInterOp: evalSmoothInterOp(insn); break;
+				case SdfInstructionKind.Sphere: evalSphere(insn, p); break;
+				case SdfInstructionKind.Box: evalBox(insn, p); break;
+				case SdfInstructionKind.RoundBox: evalRoundBox(insn, p); break;
+				case SdfInstructionKind.BoxFrame: evalBoxFrame(insn, p); break;
+				case SdfInstructionKind.Cone: evalCone(insn, p); break;
+				case SdfInstructionKind.CappedCone: evalCappedCone(insn, p); break;
+				case SdfInstructionKind.HexPrism: evalHexPrism(insn, p); break;
+				case SdfInstructionKind.TriPrism: evalTriPrism(insn, p); break;
+				case SdfInstructionKind.Capsule: evalCapsule(insn, p); break;
+				case SdfInstructionKind.CappedCylinder: evalCappedCylinder(insn, p); break;
+				case SdfInstructionKind.RoundedCylinder: evalRoundedCylinder(insn, p); break;
+				case SdfInstructionKind.CutSphere: evalCutSphere(insn, p); break;
+				case SdfInstructionKind.Octahedron: evalOctahedron(insn, p); break;
+				case SdfInstructionKind.Pyramid: evalPyramid(insn, p); break;
+				case SdfInstructionKind.Triangle: evalTriangle(insn, p); break;
+				case SdfInstructionKind.Quad: evalQuad(insn, p); break;
 			}
 		}
+
+		let lastInsn = sceneProgram[insnCount - 1];
+		return readFloat(lastInsn.outputIndex);
 	}
+
 }
-*/
 
 // Fancy numeric normal function from https://iquilezles.org/articles/normalsSDF/
 float3 calcNormal<T>(T sceneFn, float3 p, float eps) where T : IFloatSdfScene {
@@ -340,7 +459,7 @@ float3 calcNormal<T>(T sceneFn, float3 p, float eps) where T : IFloatSdfScene {
 }
 
 // Slang auto-diff based normal
-float3 exactNormal<T>(T sceneFn, in float3 p) where T : IFloatSdfScene {
+float3 exactNormal<T>(T sceneFn, in float3 p) where T : IDifferentiableFloatSdfScene {
   float3 normal;
   for (uint axis = 0; axis < 3; axis++) {
     DifferentialPair<float3> dp =
@@ -397,7 +516,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 		let hitPos = hitOpt.value;
 		// NOTE: Using doubles to calculate normals could make shimmering normals at edges much rarer
 		float3 safePos = hitPos - (lastStepLen * rayDirection);
-		float3 worldNormalHit = exactNormal(sceneFn, hitPos);
+		float3 worldNormalHit = calcNormal(sceneFn, hitPos, max(numericNormalMinEps, 1e-9 * rayDist));
 		float3 worldNormalSafe = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
 		float3 worldNormal = dot(worldNormalHit, -scene.camForward) > dot(worldNormalSafe, -scene.camForward)
 														? worldNormalHit
@@ -438,7 +557,18 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-	renderScene(ClaudeBuildingScene(), output, rayDirection);
+	renderScene(SdfProgramScene(), output, rayDirection);
+	let firstInsn = sceneProgram[0];
+	let firstParamI = firstInsn.paramsIndex;
+	let boxPos = readFloat3(firstParamI);
+	let boxSize = readFloat3(firstParamI + 3);
+	let secondInsn = sceneProgram[1];
+	let thirdInsn = sceneProgram[2];
+	if (
+		firstInsn.kind == SdfInstructionKind.Box && firstInsn.paramsIndex == 0 && firstInsn.outputIndex == 32767 && firstInsn.paramsSize == 6
+	) {
+		output.color = float4(0, 1, 0, 1);
+	}
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);
