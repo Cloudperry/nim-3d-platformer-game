@@ -524,11 +524,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 		let hitPos = hitOpt.value;
 		// NOTE: Using doubles to calculate normals could make shimmering normals at edges much rarer
 		float3 safePos = hitPos - (lastStepLen * rayDirection);
-		float3 worldNormalHit = calcNormal(sceneFn, hitPos, max(numericNormalMinEps, 1e-9 * rayDist));
-		float3 worldNormalSafe = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
-		float3 worldNormal = dot(worldNormalHit, -scene.camForward) > dot(worldNormalSafe, -scene.camForward)
-														? worldNormalHit
-														: worldNormalSafe;
+		float3 worldNormal = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
 
 		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * scene.hitColor;
 
