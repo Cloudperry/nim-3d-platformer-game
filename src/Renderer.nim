@@ -218,6 +218,7 @@ type
     sceneBuilder: SceneBuilder
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
+    dynamicCutter: tuple[outputI: ParamIndex, instI: int]
 
 var sdfRenderer = SdfRendererState()
 
@@ -236,12 +237,13 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_STATIC_DRAW, data = emptySdfProgram().some)
   sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
 
-  let innerBox = sdfRenderer.sceneBuilder.makeBox(vec3f(0, -3, 0), vec3f(9, 3, 9))
-  let outerBox = sdfRenderer.sceneBuilder.makeBox(vec3f(0, -6, 0), vec3f(10, 4, 10))
-  let room = sdfRenderer.sceneBuilder.makeSubOp(innerBox, outerBox)
-
-  sdfRenderer.sceneProgramData.upload()
-  sdfRenderer.sceneProgram.upload()
+  let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI
+  let outerBox = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, 0), vec3f(10, 5, 10)).outputI
+  let windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+  var room = sdfRenderer.sceneBuilder.cut(innerBox, outerBox).outputI
+  sdfRenderer.dynamicCutter = sdfRenderer.sceneBuilder.addBox(vec3f(0), vec3f(1.5))
+  room = sdfRenderer.sceneBuilder.cut(windowNorth, room).outputI
+  discard sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room)
 
   let vertices = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
@@ -266,7 +268,9 @@ proc uninitSdfRenderer() =
   sdfRenderer.shader.cleanup()
 
 proc updateSdfRenderer(win: Window, frame: FrameState) =
-  ## TODO: Add camera movement here
+  let inst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
+  let newX: float32 = sin(glfw.getTime().float32 * 0.8) * 10
+  sdfRenderer.sceneProgramData.data.params[inst.argsIndex.uint32] = cast[uint32](newX)
 
 proc setUniforms(c: RasterizedCamera) =
   if c.rasterizerOn:
@@ -293,6 +297,8 @@ proc drawSdfRenderer(win: Window) =
   state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
+  sdfRenderer.sceneProgramData.upload()
+  sdfRenderer.sceneProgram.upload()
   glDrawArrays(GL_TRIANGLES, 0, 6)
 
 proc sizeCbSdfRenderer(win: Window, size: tuple[w, h: int32]) = 
