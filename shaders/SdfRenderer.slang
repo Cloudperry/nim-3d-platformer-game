@@ -54,34 +54,43 @@ struct Material {
 
 struct SdfProgramData {
 	Material materialData[256];
-	// This is enough for about 8000 shapes in the worst case, but it should be enough for most SDF scenes that can run in real-time
-	uint args[65536]; 
+	uint args[]; 
 	// Index to params where instruction outputs start. For implementing safety mechanisms together with isLeafNode.
 	// uint16_t instructionOutputsStart;
 }
 
 struct SdfProgramRuntimeData {
-	uint outputs[30];
+	uint outputs[10];
+}
+
+[ForceInline]
+uint getPackedValue(uint packed, uint start, uint length) {
+	uint mask = (1u << length) - 1u;
+	return (packed >> start) & mask;
 }
 
 struct SdfInstruction {
-	SdfInstructionKind kind;
-	uint argsIndex;
-	uint runtimeArgsIndex;
-	uint outputIndex;
-  uint materialIndex;
-  uint paramsSize;
-
-	// TODO: Pack the data like below to improve performance and memory usage:
-	// First 16 bits argsIndex: Index to array that has the input parameters for this SDF program
-	// Next 16 bits runtimeArgsIndex: Index to the temporary runtime outputs array
-	// Next 16 bits outputIndex: Index to the runtime outputs array where this instruction will put its return value to
-	// First 8 bits materialIndex: Index to the materialData array
+	uint packedData0;
+	// First 8 bits kind: Packed instruction kind enum
+	// Next 8 bits runtimeArgsIndex: Index to the temporary runtime outputs array
+	// Last 16 bits argsIndex: Index to array that has the input parameters for this SDF program
+	
+	uint packedData1;
+	// First 8 bits outputIndex: Index to the runtime outputs array where this instruction will put its return value to
+	// Next 8 bits materialIndex: Index to the materialData array
 	// Next 8 bits paramsSize: How many bytes starting from argsIndex are parameters for this instruction (for debug purposes)
+	// Last 8 bits empty
 
 	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
 	// Non-leaf nodes should only read results of previous instructions.
 	// bool isLeafNode; 
+	
+	SdfInstructionKind kind() { return (SdfInstructionKind) getPackedValue(packedData0, 0, 8); }
+	uint runtimeArgsI() { return getPackedValue(packedData0, 8, 8); }
+	uint argsI() { return getPackedValue(packedData0, 16, 16); }
+	uint outputI() { return getPackedValue(packedData1, 0, 8); }
+	uint materialI() { return getPackedValue(packedData1, 8, 8); }
+	uint paramsSize() { return getPackedValue(packedData1, 16, 8); }
 }
 
 enum RenderMode {
@@ -98,9 +107,9 @@ ConstantBuffer<SceneUniforms> scene;
 ConstantBuffer<DebugSettings> debugOpt;
 
 [[vk::binding(0)]]
-RWStructuredBuffer<SdfProgramData> sdfProgData;
+StructuredBuffer<SdfProgramData> sdfProgData;
 [[vk::binding(1)]]
-RWStructuredBuffer<SdfInstruction> sdfProg;
+StructuredBuffer<SdfInstruction> sdfProg;
 
 struct VertexInput {
   [[vk::location(0)]]
@@ -117,7 +126,6 @@ struct VertexOutput {
 struct FragmentOutput {
   float4 color : SV_Target0;
 }
-
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -272,146 +280,169 @@ struct ClaudeBuildingScene : IFloatSdfScene {
 }
 
 // Operations eval
+[ForceInline]
 float evalAddOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
 	return opUnion(d1, d2);
 }
+[ForceInline]
 float evalSubOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
 	return opSubtraction(d1, d2);
 }
+[ForceInline]
 float evalInterOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
 	return opIntersection(d1, d2);
 }
+[ForceInline]
 float evalXorOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
 	return opXor(d1, d2);
 }
+[ForceInline]
 float evalSmoothAddOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
-	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsI());
 	return opSmoothUnion(d1, d2, k);
 }
+[ForceInline]
 float evalSmoothSubOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
-	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsI());
 	return opSmoothSubtraction(d1, d2, k);
 }
+[ForceInline]
 float evalSmoothInterOp(SdfInstruction insn, SdfProgramRuntimeData runtimeData) {
 	float d1; float d2; float k;
-	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex);
-	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsIndex + 1);
-	k = READ_FLOAT(sdfProgData[0].args, insn.argsIndex);
+	d1 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI());
+	d2 = READ_FLOAT(runtimeData.outputs, insn.runtimeArgsI() + 1);
+	k = READ_FLOAT(sdfProgData[0].args, insn.argsI());
 	return opSmoothIntersection(d1, d2, k);
 }
 
 // Shapes eval
+[ForceInline]
 float evalSphere(SdfInstruction insn, float3 rayP) {
 	float3 p; float r;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); r = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 3);
 	return sdSphere(rayP - p, r);
 }
+[ForceInline]
 float evalBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
 	return sdBox(rayP - p, halfExtent);
 }
+[ForceInline]
 float evalRoundBox(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 halfExtent; float r;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 6);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); halfExtent = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 6);
 	return sdRoundBox(rayP - p, halfExtent, r);
 }
+[ForceInline]
 float evalBoxFrame(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 b; float e;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	e = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 6);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	e = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 6);
 	return sdBoxFrame(rayP - p, b, e);
 }
+[ForceInline]
 float evalCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 c; float h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); c = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
-	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 5);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); c = READ_FLOAT2(sdfProgData[0].args, insn.argsI() + 3);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 5);
 	return sdCone(rayP - p, c, h);
 }
+[ForceInline]
 float evalCappedCone(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float ra; float rb;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); ra = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
-	rb = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 10);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); a = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 6); ra = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 9);
+	rb = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 10);
 	return sdCappedCone(rayP - p, a, b, ra, rb);
 }
+[ForceInline]
 float evalHexPrism(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); h = READ_FLOAT2(sdfProgData[0].args, insn.argsI() + 3);
 	return sdHexPrism(rayP - p, h);
 }
+[ForceInline]
 float evalTriPrism(SdfInstruction insn, float3 rayP) {
 	float3 p; float2 h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT2(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); h = READ_FLOAT2(sdfProgData[0].args, insn.argsI() + 3);
 	return sdTriPrism(rayP - p, h);
 }
+[ForceInline]
 float evalCapsule(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float r;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6);
-	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); a = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 6);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 9);
 	return sdCapsule(rayP - p, a, b, r);
 }
+[ForceInline]
 float evalCappedCylinder(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float r;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6);
-	r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); a = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 6);
+	r = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 9);
 	return sdCappedCylinder(rayP - p, a, b, r);
 }
+[ForceInline]
 float evalRoundedCylinder(SdfInstruction insn, float3 rayP) {
 	float3 p; float ra; float rb; float h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); ra = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
-	rb = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 4);
-	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 5);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); ra = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 3);
+	rb = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 4);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 5);
 	return sdRoundedCylinder(rayP - p, ra, rb, h);
 }
+[ForceInline]
 float evalCutSphere(SdfInstruction insn, float3 rayP) {
 	float3 p; float r; float h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); r = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
-	h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 4);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); r = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 3);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 4);
 	return sdCutSphere(rayP - p, r, h);
 }
+[ForceInline]
 float evalOctahedron(SdfInstruction insn, float3 rayP) {
 	float3 p; float s;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); s = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); s = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 3);
 	return sdOctahedron(rayP - p, s);
 }
+[ForceInline]
 float evalPyramid(SdfInstruction insn, float3 rayP) {
 	float3 p; float h;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); h = READ_FLOAT(sdfProgData[0].args, insn.argsIndex + 3);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); h = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 3);
 	return sdPyramid(rayP - p, h);
 }
+[ForceInline]
 float evalTriangle(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float3 c;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 9);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); a = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 9);
 	return udTriangle(rayP - p, a, b, c);
 }
+[ForceInline]
 float evalQuad(SdfInstruction insn, float3 rayP) {
 	float3 p; float3 a; float3 b; float3 c; float3 d;
-	p = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex); a = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 3);
-	b = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 9);
-	d = READ_FLOAT3(sdfProgData[0].args, insn.argsIndex + 12);
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); a = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	b = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 6); c = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 9);
+	d = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 12);
 	return udQuad(rayP - p, a, b, c, d);
 }
 
@@ -425,7 +456,7 @@ struct SdfProgramScene : IFloatSdfScene {
 		for (uint i = 0; i < insnCount; i++) {
 			SdfInstruction insn = sdfProg[i];
 
-			switch (insn.kind) {
+			switch (insn.kind()) {
 				case SdfInstructionKind.AddOp: res = evalAddOp(insn, runtimeData); break;
 				case SdfInstructionKind.SubOp: res = evalSubOp(insn, runtimeData); break;
 				case SdfInstructionKind.InterOp: res = evalInterOp(insn, runtimeData); break;
@@ -451,7 +482,7 @@ struct SdfProgramScene : IFloatSdfScene {
 				case SdfInstructionKind.Quad: res = evalQuad(insn, p); break;
 			}
 
-			WRITE_FLOAT(runtimeData.outputs, insn.outputIndex, res);
+			WRITE_FLOAT(runtimeData.outputs, insn.outputI(), res);
 		}
 
 		return res;
@@ -479,14 +510,14 @@ float3 exactNormal<T>(T sceneFn, in float3 p) where T : IDifferentiableFloatSdfS
   return normalize(normal);
 }
 
-static const int maxSteps = 256;
+static const int maxSteps = 128;
 Optional<float3> sphereTrace<T>(
 	T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount
 ) where T : IFloatSdfScene {
   const float baseHitEps = 1e-6; // How close to an object should the ray be for it to hit
 	const float minHitEps = 1e-8; // This might be too small
-	const float maxHitEps = 1e-2;
-	const float maxEpsStepCountScaling = 5000;
+	const float maxHitEps = 1e-1;
+	const float maxEpsStepCountScaling = 10000;
   // TODO: Dynamic far clip distance based on sceneFn contents?
   const float farClipDist = 100.0;
 
@@ -561,7 +592,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-	renderScene(ClaudeBuildingScene(), output, rayDirection);
+	renderScene(SdfProgramScene(), output, rayDirection);
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);

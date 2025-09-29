@@ -69,7 +69,7 @@ proc commonUpdate(win: Window, frame: var FrameState) =
   )
 
 # ======================================== Rasterizer ========================================
-makeGlObjects(std140Alignment, RaiseError):
+makeGlObjects(RaiseError, std140Alignment):
   type GpuSceneUniforms = object
     cameraPos: Vec3f
     # Just one model to world transform for now, separate transforms for each model will be needed later
@@ -196,7 +196,7 @@ proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraA
 # ======================================== SDF renderer (sphere tracer) ========================================
 type RenderMode {.size: sizeof(uint32).} = enum
   ShadedScene, UnlitScene, DebugNormals, DebugStepCounts
-makeGlObjects(std140Alignment, RaiseError):
+makeGlObjects(RaiseError, std140Alignment):
   type GpuSdfSceneUniforms = object
     aspect: GLfloat 
     camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
@@ -218,7 +218,7 @@ type
     sceneBuilder: SceneBuilder
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
-    dynamicCutter: tuple[outputI: ParamIndex, instI: int]
+    dynamicCutter: tuple[outputI: uint8, instI: int]
 
 var sdfRenderer = SdfRendererState()
 
@@ -233,8 +233,12 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   # This could probably be GL_STATIC_DRAW as its updated veery rarely, but OpenGL complained when updating it
   sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_STATIC_DRAW, data = SdfProgramData().some)
-  sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_STATIC_DRAW, data = emptySdfProgram().some)
+  sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
+    sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = SdfProgramData().some
+  )
+  sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](
+    sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = emptySdfProgram().some
+  )
   sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
 
   let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI
@@ -244,6 +248,7 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.dynamicCutter = sdfRenderer.sceneBuilder.addBox(vec3f(0), vec3f(1.5))
   room = sdfRenderer.sceneBuilder.cut(windowNorth, room).outputI
   discard sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room)
+  sdfRenderer.sceneProgramData.uploadField(materialData)
 
   let vertices = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
@@ -297,7 +302,7 @@ proc drawSdfRenderer(win: Window) =
   state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
-  sdfRenderer.sceneProgramData.upload()
+  sdfRenderer.sceneProgramData.uploadField(params)
   sdfRenderer.sceneProgram.upload()
   glDrawArrays(GL_TRIANGLES, 0, 6)
 

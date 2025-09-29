@@ -135,13 +135,18 @@ proc desym(n: NimNode) =
 proc elementSize(t: NimNode): int {.compileTime.} =
   ## Get the element size of a typed NimNode representing an array
   let T = t.getType
-  if T.kind == nnkBracketExpr and $T[0] == "array":
-    result = T[2].getSize()
+  if T.kind == nnkBracketExpr and $T[0] in ["array", "seq"]:
+    case $T[0]
+    of "array": result = T[2].getSize()
+    of "seq": result = T[1].getSize()
+    else: discard
   else:
     error("elementSize: expected an array type, got " & $T.repr, t)
 
+const dontAlignByType* = initTable[string, int]()
+
 macro makeGlObjects*(
-  alignTable: static Table[string, int], unknownAlignment: static UnknownTypeAlignment = RaiseError, body: typed
+  unknownAlignment: static UnknownTypeAlignment = RaiseError, alignTable: static Table[string, int] = dontAlignByType, body: typed
 ): untyped =
   for n in body:
     if n.kind == nnkTypeSection:
@@ -210,6 +215,7 @@ type ShaderDataBufferRef*[T: object | seq[object]] = ref object
   id*: GLuint
   shaderSlots: Table[GLuint, int]
   bufferType, usageHint: GLenum
+  currentAllocatedSize: int
   data*: ref T
 
 const supportedBufferTypes = [GL_UNIFORM_BUFFER, GL_SHADER_STORAGE_BUFFER]
@@ -227,6 +233,9 @@ proc validateEnumsOrRaise(bufferType, usageHint: GLenum) =
   elif usageHint notin validUsageHints:
     raise newException(Exception, fmt"Invalid usage hint {usageHint.uint}. Check validUsageHints const for valid usages.")
 
+# TODO: Add a macro that scans the object T for seq fields (and other heap allocated data)? This could make using dynamic
+# arrays inside OpenGL buffers easier and safer. The macro should check that heap allocated fields are only at the end
+# of the object and keep track of how long the static region in the object is.
 proc initShaderDataBuffer*[T](
   targetShader: ShaderRef, shaderSlot: int; bufferType, usageHint: GLenum; data: Option[T] = T.none
 ): ShaderDataBufferRef[T] = 
@@ -238,6 +247,7 @@ proc initShaderDataBuffer*[T](
   result.shaderSlots[targetShader.id] = shaderSlot
   result.usageHint = usageHint
   result.data = new T
+  result.currentAllocatedSize = sizeof T
 
   glGenBuffers(1, addr result.id)
   glBindBuffer(bufferType, result.id)
@@ -245,7 +255,7 @@ proc initShaderDataBuffer*[T](
   if data.isSome:
     result.data[] = data.get
     dataRef = addr result.data[]
-  glBufferData(bufferType, sizeof T, dataRef, result.usageHint)
+  glBufferData(bufferType, result.currentAllocatedSize, dataRef, result.usageHint)
   glBindBufferBase(bufferType, shaderSlot, result.id)
 
 # TODO: Add function for associating the UBO with more shaders (for UBOs that get passed between shaders like compute -> vertex/fragment)
@@ -256,7 +266,8 @@ proc use*[T](b: ShaderDataBufferRef[T], shader: ShaderRef) =
   let slot = b.shaderSlots[shader.id]
   glBindBufferBase(b.bufferType, slot, b.id)
 
-proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum] = GLenum.none) =
+# This shouldn't be used with objects that have seq fields as it only uploads part of the object
+proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum] = GLenum.none, allocExtraBytes = 0) =
   s.glBind()
   let bufferType = if bufferType.isSome:
     bufferType.get
@@ -267,15 +278,21 @@ proc upload*[T](s: ShaderDataBufferRef[T]; bufferType, usageHint: Option[GLenum]
   else:
     s.usageHint
   when T is object:
-    glBufferData(bufferType, sizeof T, addr s.data[], usageHint)
+    glBufferData(bufferType, sizeof(T) + allocExtraBytes, addr s.data[], usageHint)
   elif T is seq[object]:
-    glBufferData(bufferType, s.data[].len * sizeof(s.data[0]), addr s.data[0], usageHint)
+    glBufferData(bufferType, s.data[].len * sizeof(s.data[0]) + allocExtraBytes, addr s.data[0], usageHint)
 
 proc uploadRegion*[T](b: ShaderDataBufferRef[T]; offset, size: int; regionStartPtr: pointer) =
   b.glBind()
   glBufferSubData(b.bufferType, offset, size, regionStartPtr)
 template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
-  b.uploadRegion(T.offsetOf(field), sizeof b.data.field, addr b.data.field)
+  when b.data.field is seq:
+    let seqSize = b.data.field.len * sizeof(b.data.field[0])
+    if sizeof(T) + seqSize > b.currentAllocatedSize:
+      b.upload(allocExtraBytes = seqSize * 2)
+    b.uploadRegion(T.offsetOf(field), seqSize, addr b.data.field[0])
+  else:
+    b.uploadRegion(T.offsetOf(field), sizeof b.data.field, addr b.data.field)
 template setField*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) =
   b.data.field = value
   b.uploadField(field)
