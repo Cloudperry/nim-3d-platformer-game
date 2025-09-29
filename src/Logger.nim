@@ -1,4 +1,4 @@
-import std/[os, times, options, strformat]
+import std/[os, times, options, strformat, algorithm, math]
 
 type
   CircularBuffer*[N: Natural, T] = object
@@ -66,11 +66,14 @@ proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
 
     var (frameTimeMin, frameTimeMax) = (Duration.high, Duration.low)
     var count = 0
+    var frameTimes: seq[Duration]
     for time in logger.frameTimes.range(logger.lastLogI, logger.frameTimes.i): 
       frameTimeSum += time
-      frameTimeMin = min(time, frameTimeMin)
-      frameTimeMax = max(time, frameTimeMax)
+      frameTimes.add time
       count += 1
+    sort(frameTimes)
+    frameTimeMin = frameTimes[round(count.float * 0.05).int]
+    frameTimeMax = frameTimes[round(count.float * 0.95).int]
 
     logger.timeSinceLastLog = initDuration()
     logger.lastLogI = logger.frameTimes.i
@@ -79,4 +82,4 @@ proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
       inMicroseconds(updateSum div count), inMicroseconds(drawSum div count), inMicroseconds(frameTimeMin), inMicroseconds(frameTimeMax)
     )
     let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
-    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}, Min/max frametimes: {minTime}/{maxTime} μs".some
+    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}, 5% Min/max frametimes: {minTime}/{maxTime} μs".some

@@ -479,7 +479,7 @@ float3 exactNormal<T>(T sceneFn, in float3 p) where T : IDifferentiableFloatSdfS
   return normalize(normal);
 }
 
-static const int maxSteps = 512;
+static const int maxSteps = 256;
 Optional<float3> sphereTrace<T>(
 	T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount
 ) where T : IFloatSdfScene {
@@ -543,7 +543,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 				output.color = float4(worldNormal, 1.0);
 				return;
 			case RenderMode.DebugStepCounts:
-				float normalizedStepCount = saturate((float)stepCount / (maxSteps / 2));
+				float normalizedStepCount = saturate((float)stepCount / maxSteps);
 				float3 stepsGradientColor = lerp(float3(0, 1, 0), float3(1, 0, 0), normalizedStepCount);
 				output.color = float4(stepsGradientColor, 1);
 				return;
@@ -565,7 +565,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-	renderScene(SdfProgramScene(), output, rayDirection);
+	renderScene(ClaudeBuildingScene(), output, rayDirection);
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);
