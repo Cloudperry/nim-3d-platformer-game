@@ -14,6 +14,8 @@ struct SceneUniforms {
   float fov;
 }
 
+// TODO: Add union of N shapes and intersection of N shapes to be more efficient with output slots. These could possibly
+// even replace the normal binary op versions. This method is possible to use with basically all commutative SDF ops.
 enum SdfInstructionKind {
 	// Operations
 	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
@@ -55,10 +57,9 @@ struct Material {
 struct SdfProgramData {
 	Material materialData[256];
 	uint args[]; 
-	// Index to params where instruction outputs start. For implementing safety mechanisms together with isLeafNode.
-	// uint16_t instructionOutputsStart;
 }
 
+// For complex CSG trees, this can be increased to at least 20 or 30 without destroying performance.
 struct SdfProgramRuntimeData {
 	uint outputs[10];
 }
@@ -78,19 +79,17 @@ struct SdfInstruction {
 	uint packedData1;
 	// First 8 bits outputIndex: Index to the runtime outputs array where this instruction will put its return value to
 	// Next 8 bits materialIndex: Index to the materialData array
-	// Next 8 bits paramsSize: How many bytes starting from argsIndex are parameters for this instruction (for debug purposes)
+  
+  // TODO: Add runtimeArgCount for operations on N shapes at once?
+	// Next 8 bits argCount (unused): How many uints starting from argsIndex are parameters for this instruction
 	// Last 8 bits empty
 
-	// This could be used to implement a safety mechanism that clearly shows if a non-leaf node is trying to read program input parameters.
-	// Non-leaf nodes should only read results of previous instructions.
-	// bool isLeafNode; 
-	
 	SdfInstructionKind kind() { return (SdfInstructionKind) getPackedValue(packedData0, 0, 8); }
 	uint runtimeArgsI() { return getPackedValue(packedData0, 8, 8); }
 	uint argsI() { return getPackedValue(packedData0, 16, 16); }
 	uint outputI() { return getPackedValue(packedData1, 0, 8); }
 	uint materialI() { return getPackedValue(packedData1, 8, 8); }
-	uint paramsSize() { return getPackedValue(packedData1, 16, 8); }
+	uint argCount() { return getPackedValue(packedData1, 16, 8); }
 }
 
 enum RenderMode {

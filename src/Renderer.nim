@@ -275,7 +275,7 @@ proc uninitSdfRenderer() =
 proc updateSdfRenderer(win: Window, frame: FrameState) =
   let inst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
   let newX: float32 = sin(glfw.getTime().float32 * 0.8) * 10
-  sdfRenderer.sceneProgramData.data.params[inst.argsIndex.uint32] = cast[uint32](newX)
+  sdfRenderer.sceneProgramData.data.args[inst.argsI.uint32] = cast[uint32](newX)
 
 proc setUniforms(c: RasterizedCamera) =
   if c.rasterizerOn:
@@ -302,7 +302,7 @@ proc drawSdfRenderer(win: Window) =
   state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
-  sdfRenderer.sceneProgramData.uploadField(params)
+  sdfRenderer.sceneProgramData.uploadField(args)
   sdfRenderer.sceneProgram.upload()
   glDrawArrays(GL_TRIANGLES, 0, 6)
 
