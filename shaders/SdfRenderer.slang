@@ -80,9 +80,9 @@ struct SdfInstruction {
 	// First 8 bits outputIndex: Index to the runtime outputs array where this instruction will put its return value to
 	// Next 8 bits materialIndex: Index to the materialData array
   
-  // TODO: Add runtimeArgCount for operations on N shapes at once?
+  // TODO: Use runtimeArgCount for operations on N shapes at once?
 	// Next 8 bits argCount (unused): How many uints starting from argsIndex are parameters for this instruction
-	// Last 8 bits empty
+	// Last 8 bits runtimeArgCount (unused)
 
 	SdfInstructionKind kind() { return (SdfInstructionKind) getPackedValue(packedData0, 0, 8); }
 	uint runtimeArgsI() { return getPackedValue(packedData0, 8, 8); }
@@ -90,6 +90,7 @@ struct SdfInstruction {
 	uint outputI() { return getPackedValue(packedData1, 0, 8); }
 	uint materialI() { return getPackedValue(packedData1, 8, 8); }
 	uint argCount() { return getPackedValue(packedData1, 16, 8); }
+	uint runtimeArgCount() { return getPackedValue(packedData1, 24, 8); }
 }
 
 enum RenderMode {

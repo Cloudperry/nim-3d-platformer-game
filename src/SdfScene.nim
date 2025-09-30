@@ -29,17 +29,18 @@ makeGlObjects(AlignToSize, dontAlignByType):
       outputI*: uint8
       materialI*: uint8
       argCount*: uint8
+      runtimeArgCount*: uint8
 
 proc emptySdfProgram*(): seq[SdfInstruction] = @[]
 
 const maxOutputSlots = 10
 
-# TODO: Keep track of which output slots have been used with a combining operation and raise an exception when making
-# a new instruction that would overwrite the unused result. Also add a better API for dynamically changing existing shapes
-# and instructions (low priority).
+# TODO: Add a better API for dynamically changing existing shapes and instructions (low priority)
 type
   SceneBuilder* = object
     nextArgI: uint16 = 0
+    # This holds the index of the instruction that wrote in the slot, if the result hasn't been used yet
+    outputSlotUsage: array[maxOutputSlots, Option[int]]
     nextOutputI: uint8 = 0
     data: ref SdfProgramData
     instructions: ref seq[SdfInstruction]
@@ -47,11 +48,20 @@ type
 proc initSceneBuilder*(data: ref SdfProgramData, instructions: ref seq[SdfInstruction]): SceneBuilder =
   SceneBuilder(data: data, instructions: instructions)
 
+# TODO: Split to different functions for shapes and operators to make the fn call signature less messy
 proc makeInsn(
-  kind: SdfInstructionKind; argsI: uint16; outputI, argCount: uint8; runtimeArgsI = uint8.none
+  kind: SdfInstructionKind; argsI: uint16; outputI, argCount: uint8; runtimeArgsI, runtimeArgCount = uint8.none
 ): SdfInstruction =
   result = SdfInstruction(kind: kind, argsI: argsI, outputI: outputI, argCount: argCount)
-  if runtimeArgsI.isSome: result.runtimeArgsI = runtimeArgsI.get
+
+  result.runtimeArgsI = if runtimeArgsI.isSome:
+     runtimeArgsI.get
+  else:
+    uint8.high # This instruction doesn't use any runtime arguments
+
+  if runtimeArgCount.isSome:
+    result.runtimeArgCount = runtimeArgCount.get
+
 
 template makeUintArgs(arr: untyped) =
   const arrSize = sizeof(arr[0]) div sizeof(uint32) * arr.len
@@ -64,11 +74,50 @@ proc addArgs(prog: var SceneBuilder, args: openArray[uint32]) =
 # This is broken but why?
 proc size(params: openArray[uint32]): uint32 = sizeof(params) div 4 # How many uint32s is this params array?
 proc addInsnWithOutput(prog: var SceneBuilder, i: SdfInstruction): tuple[outputI: uint8, instI: int] =
-  result = (prog.nextOutputI, prog.instructions[].len)
+  # Mark the output slot that this instruction used as input to be unused
+  if i.runtimeArgsI != uint8.high:
+    for slotI in i.runtimeArgsI ..< i.runtimeArgsI+i.runtimeArgCount:
+      prog.outputSlotUsage[slotI] = int.none
+
+  # Check that the output slot this instruction writes to is unused and mark it as being used by this instruction
+  let outputSlotState = prog.outputSlotUsage[i.outputI]
+  assert(
+    outputSlotState.isNone,
+    &"\nAttempt to overwrite output slot:\n\nInstruction {prog.instructions[].len}: {i}...\ntried to use output slot {i.outputI} " &
+    &"that was written to by:\n\ninstruction {outputSlotState.get}: {prog.instructions[outputSlotState.get]}...\n" &
+    &"and not used by any combining operator"
+  )
+  let instI = prog.instructions[].len
+  prog.outputSlotUsage[i.outputI] = instI.some
+
+  result = (i.outputI, instI)
   prog.instructions[].add i
-  echo i
   prog.nextOutputI += 1
   prog.nextOutputI = prog.nextOutputI mod maxOutputSlots
+
+  when defined(showSdfInstructions):
+    echo fmt"Instruction {prog.instructions[].high}: {i}"
+
+#[
+Code that was used to test slot overwrite protection:
+
+let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI
+let outerBox = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, 0), vec3f(10, 5, 10)).outputI
+var windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+let room = sdfRenderer.sceneBuilder.cut(innerBox, outerBox)
+windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+# This will cause an overwrite:
+# windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
+
+This would make for a good test...
+]#
 
 const defaultRoundingFactor: GLfloat = 0.5
 
@@ -146,28 +195,28 @@ proc assertContiguousInputs(inputs: openArray[uint8]) =
              "The GPU SDF instruction interpreter can only read parameters in order.")
 proc combine*(prog: var SceneBuilder; d1Index, d2Index: uint8): tuple[outputI: uint8, instI: int] =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(AddOp, uint8.high, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(AddOp, uint16.high, prog.nextOutputI, 0, d1Index.some, 2.uint8.some)
 proc cut*(prog: var SceneBuilder; d1Index, d2Index: uint8): tuple[outputI: uint8, instI: int] =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SubOp, uint8.high, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(SubOp, uint16.high, prog.nextOutputI, 0, d1Index.some, 2.uint8.some)
 proc intersect*(prog: var SceneBuilder; d1Index, d2Index: uint8): tuple[outputI: uint8, instI: int] =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(InterOp, uint8.high, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(InterOp, uint16.high, prog.nextOutputI, 0, d1Index.some, 2.uint8.some)
 proc combineWithoutOverlap*(prog: var SceneBuilder; d1Index, d2Index: uint8): tuple[outputI: uint8, instI: int] =
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(XorOp, uint8.high, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(XorOp, uint16.high, prog.nextOutputI, 0, d1Index.some, 2.uint8.some)
 proc smoothlyCombine*(prog: var SceneBuilder; d1Index, d2Index: uint8; k = defaultRoundingFactor): tuple[outputI: uint8, instI: int] =
   makeUintArgs [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothAddOp, prog.nextArgI, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(SmoothAddOp, prog.nextArgI, prog.nextOutputI, 1, d1Index.some, 2.uint8.some)
   prog.addArgs args
 proc smoothlyCut*(prog: var SceneBuilder; d1Index, d2Index: uint8; k = defaultRoundingFactor): tuple[outputI: uint8, instI: int] =
   makeUintArgs [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothSubOp, prog.nextArgI, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(SmoothSubOp, prog.nextArgI, prog.nextOutputI, 1, d1Index.some, 2.uint8.some)
   prog.addArgs args
 proc smoothlyIntersect*(prog: var SceneBuilder; d1Index, d2Index: uint8; k = defaultRoundingFactor): tuple[outputI: uint8, instI: int] =
   makeUintArgs [k]
   assertContiguousInputs [d1Index, d2Index]
-  result = prog.addInsnWithOutput makeInsn(SmoothInterOp, prog.nextArgI, prog.nextOutputI, 2, d1Index.some)
+  result = prog.addInsnWithOutput makeInsn(SmoothInterOp, prog.nextArgI, prog.nextOutputI, 1, d1Index.some, 2.uint8.some)
   prog.addArgs args
