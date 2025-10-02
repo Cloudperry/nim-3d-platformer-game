@@ -56,6 +56,8 @@ struct Material {
 
 struct SdfProgramData {
 	Material materialData[256];
+	// If this shader is ever used for a Windows game, this runtime-sized array needs to be replaced. AMD OpenGL drivers fail
+	// to link the shader if a dynamic array is used in an SSBO. Zink and GLonD3D12 work, but are unusably slow.
 	uint args[]; 
 }
 
