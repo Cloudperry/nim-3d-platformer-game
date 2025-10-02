@@ -1,5 +1,13 @@
 module Sdf;
 
+public interface IFloatSdfScene {
+	static float sdf(float3 p);
+}
+public interface IDifferentiableFloatSdfScene {
+	[Differentiable]
+	static float sdf(float3 p);
+}
+
 // SDF shapes and CSG ops from https://iquilezles.org/articles/distfunctions/
 
 // Sphere - exact
