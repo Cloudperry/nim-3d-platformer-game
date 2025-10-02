@@ -2,10 +2,13 @@ import Sdf;
 import SdfTestScenes;
 
 struct SceneUniforms {
+	// TODO: Move hitColor and specularExponent to material properties. For now they are scene-global.
+	// TODO: Add point lights
   float aspect;
   float3 camPos, camForward, camRight, camUp, hitColor, bgColor;
   float fov;
 	float3 mainLightDirection, mainLightColor, ambientLightColor;
+	float specularExponent;
 }
 
 // TODO: Add union of N shapes and intersection of N shapes to be more efficient with output slots. These could possibly
@@ -395,6 +398,17 @@ Optional<float3> sphereTrace<T>(
 	return none;
 }
 
+/*
+  // Specular
+  if (dir_to_light.dot(normal) > 0) {
+    Vector3f r = dir_to_light - 2 * (dir_to_light.dot(normal)) * normal;
+    float specular_dot = ray.direction.dot(r);
+    specular_dot = specular_dot >= 0.0f ? specular_dot : 0.0f;
+    answer += incident_intensity.cwiseProduct(specular_color_) * pow(specular_dot, exponent_);
+  }
+  return answer;
+*/
+
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
 	const float numericNormalMinEps = 8e-6;
@@ -410,8 +424,16 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 
 		switch(debugOpt.mode) {
 			case RenderMode.ShadedScene:
-				float3 diffuseColor = max(dot(worldNormal, -scene.mainLightDirection), 0.0) * scene.mainLightColor;
-				output.color = float4(scene.ambientLightColor * scene.hitColor + diffuseColor * scene.hitColor, 1.0);
+				float3 dirToLight = -scene.mainLightDirection;
+				float3 diffuseColor = max(0, dot(worldNormal, dirToLight)) * scene.mainLightColor; // Lambertian diffuse
+				float3 halfDir = normalize(-rayDirection + dirToLight);
+				float specularDot = max(0, dot(worldNormal, halfDir));
+				float3 specularColor = scene.mainLightColor * pow(specularDot, scene.specularExponent); // Blinn-Phong specular light (reflection)
+				output.color = float4(
+					scene.ambientLightColor * scene.hitColor +
+					diffuseColor * scene.hitColor +
+					specularColor * scene.hitColor, 1.0
+				);
 				return;
 			case RenderMode.UnlitScene:
 				output.color = float4(scene.hitColor, 1.0);
