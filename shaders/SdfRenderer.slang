@@ -5,6 +5,7 @@ struct SceneUniforms {
   float aspect;
   float3 camPos, camForward, camRight, camUp, hitColor, bgColor;
   float fov;
+	float3 mainLightDirection, mainLightColor, ambientLightColor;
 }
 
 // TODO: Add union of N shapes and intersection of N shapes to be more efficient with output slots. These could possibly
@@ -396,7 +397,6 @@ Optional<float3> sphereTrace<T>(
 
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
-  const float3 lightDirection = normalize(float3(-5.0, -5.0, -3.0));
 	const float numericNormalMinEps = 8e-6;
 
 	float rayDist, lastStepLen;
@@ -408,11 +408,10 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 		float3 safePos = hitPos - (lastStepLen * rayDirection);
 		float3 worldNormal = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
 
-		float3 diffuseColor = max(dot(worldNormal, -lightDirection), 0.0) * scene.hitColor;
-
 		switch(debugOpt.mode) {
 			case RenderMode.ShadedScene:
-				output.color = float4(diffuseColor, 1.0);
+				float3 diffuseColor = max(dot(worldNormal, -scene.mainLightDirection), 0.0) * scene.mainLightColor;
+				output.color = float4(scene.ambientLightColor * scene.hitColor + diffuseColor * scene.hitColor, 1.0);
 				return;
 			case RenderMode.UnlitScene:
 				output.color = float4(scene.hitColor, 1.0);

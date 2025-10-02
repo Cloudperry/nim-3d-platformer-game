@@ -47,8 +47,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float3 worldNormal = mul((float3x3)(uniforms.modelToWorldMat), input.normal);
   float3 lightDirection = -uniforms.mainLightDirection;
   float3 diffuseColor = max(dot(worldNormal, lightDirection), 0.0) * uniforms.mainLightColor;
-  output.color =
-      float4(uniforms.ambientLightColor * input.color, 1.0f) + float4(diffuseColor, 1.0f) * float4(input.color, 1.0f);
+  output.color = float4(uniforms.ambientLightColor * input.color + diffuseColor * input.color, 1.0f);
 
   return output;
 }

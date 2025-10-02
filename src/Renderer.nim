@@ -201,6 +201,8 @@ makeGlObjects(RaiseError, std140Alignment):
     aspect: GLfloat 
     camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
     fov: GLfloat
+    mainLightDirection, mainLightColor, ambientLightColor: Vec3f
+
   type DebugSettings = object
     mode: RenderMode
 
@@ -240,8 +242,12 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](
     sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = emptySdfProgram().some
   )
-  sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
 
+  sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
+  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(1, 0.65, 0.5))
+  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.2))
+
+  sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
   let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI
   let outerBox = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, 0), vec3f(10, 5, 10)).outputI
   let windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2)).outputI
