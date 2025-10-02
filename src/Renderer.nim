@@ -219,6 +219,7 @@ type
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
     dynamicCutter: tuple[outputI: uint8, instI: int]
+    movingSphere: tuple[outputI: uint8, instI: int]
 
 var sdfRenderer = SdfRendererState()
 
@@ -247,7 +248,9 @@ proc initSdfRenderer(win: Window) =
   var room = sdfRenderer.sceneBuilder.cut(innerBox, outerBox).outputI
   sdfRenderer.dynamicCutter = sdfRenderer.sceneBuilder.addBox(vec3f(0), vec3f(1.5))
   room = sdfRenderer.sceneBuilder.cut(windowNorth, room).outputI
-  discard sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room)
+  room = sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room).outputI
+  sdfRenderer.movingSphere = sdfRenderer.sceneBuilder.addSphere(vec3f(0, 0, 0), 2)
+  discard sdfRenderer.sceneBuilder.smoothlyCombine(room, sdfRenderer.movingSphere.outputI)
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
   let vertices = @[
@@ -273,9 +276,12 @@ proc uninitSdfRenderer() =
   sdfRenderer.shader.cleanup()
 
 proc updateSdfRenderer(win: Window, frame: FrameState) =
-  let inst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
+  let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
   let newX: float32 = sin(glfw.getTime().float32 * 0.8) * 10
-  sdfRenderer.sceneProgramData.data.args[inst.argsI.uint32] = cast[uint32](newX)
+  sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
+  let sphereInst = sdfRenderer.sceneProgram.data[sdfRenderer.movingSphere.instI]
+  let newY: float32 = sin(glfw.getTime().float32 * 0.8) * 5
+  sdfRenderer.sceneProgramData.data.args[sphereInst.argsI.uint32 + 1] = cast[uint32](newY)
 
 proc setUniforms(c: RasterizedCamera) =
   if c.rasterizerOn:

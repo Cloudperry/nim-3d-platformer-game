@@ -119,7 +119,7 @@ windowNorth = sdfRenderer.sceneBuilder.addBox(vec3f(0, 0, -9), vec3f(1.5, 1.5, 2
 This would make for a good test...
 ]#
 
-const defaultRoundingFactor: GLfloat = 0.5
+const defaultRoundingFactor: GLfloat = 0.25
 
 # These functions return the output parameter slot where their results will be written
 # TODO: Generate from function signature using macros?
