@@ -202,6 +202,7 @@ makeGlObjects(RaiseError, std140Alignment):
     camPos, camForward, camRight, camUp, hitColor, bgColor: Vec3f
     fov: GLfloat
     mainLightDirection, mainLightColor, ambientLightColor: Vec3f
+    specularExponent: GLfloat
 
   type DebugSettings = object
     mode: RenderMode
@@ -244,8 +245,9 @@ proc initSdfRenderer(win: Window) =
   )
 
   sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
-  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(1, 0.65, 0.5))
-  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.2))
+  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.4, 0.3))
+  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.1))
+  sdfRenderer.sceneUbo.setField(specularExponent, 16)
 
   sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
   let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI

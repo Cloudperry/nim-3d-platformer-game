@@ -1,11 +1,15 @@
 import Sdf;
+import Lighting;
 import SdfTestScenes;
 
 struct SceneUniforms {
+	// TODO: Move hitColor and specularExponent to material properties. For now they are scene-global.
+	// TODO: Add point lights
   float aspect;
   float3 camPos, camForward, camRight, camUp, hitColor, bgColor;
   float fov;
 	float3 mainLightDirection, mainLightColor, ambientLightColor;
+	float specularExponent;
 }
 
 // TODO: Add union of N shapes and intersection of N shapes to be more efficient with output slots. These could possibly
@@ -48,11 +52,17 @@ struct Material {
     (data)[(idx) + 1] = asuint((val).y); \
     (data)[(idx) + 2] = asuint((val).z)
 
+// TODO: Add a special SDF program type for emissive shapes. In this program there are only shape instructions and the distances
+// are not saved to output slots. Instead the shapes are evaluated one by one and their light contributions are summed up to
+// a final light. This avoids the slowness of traversing the whole scene SDF program just to get the light contribution from
+// emissives. One problem to solve with this approach is how to get the emissive surface to be correctly lit, since its physical
+// geometric shape is now separate from the emission evaluation.
+
 struct SdfProgramData {
 	Material materialData[256];
 	// If this shader is ever used for a Windows game, this runtime-sized array needs to be replaced. AMD OpenGL drivers fail
 	// to link the shader if a dynamic array is used in an SSBO. Zink and GLonD3D12 work, but are unusably slow.
-	uint args[]; 
+	uint args[];
 }
 
 // For complex CSG trees, this can be increased to at least 20 or 30 without destroying performance.
@@ -395,6 +405,17 @@ Optional<float3> sphereTrace<T>(
 	return none;
 }
 
+/*
+  // Specular
+  if (dir_to_light.dot(normal) > 0) {
+    Vector3f r = dir_to_light - 2 * (dir_to_light.dot(normal)) * normal;
+    float specular_dot = ray.direction.dot(r);
+    specular_dot = specular_dot >= 0.0f ? specular_dot : 0.0f;
+    answer += incident_intensity.cwiseProduct(specular_color_) * pow(specular_dot, exponent_);
+  }
+  return answer;
+*/
+
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
 	const float numericNormalMinEps = 8e-6;
@@ -410,8 +431,13 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 
 		switch(debugOpt.mode) {
 			case RenderMode.ShadedScene:
-				float3 diffuseColor = max(dot(worldNormal, -scene.mainLightDirection), 0.0) * scene.mainLightColor;
-				output.color = float4(scene.ambientLightColor * scene.hitColor + diffuseColor * scene.hitColor, 1.0);
+				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
+				float3 dirToLight = -scene.mainLightDirection;
+				float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
+				float3 specularColor = blinnPhongSpecular(
+					dirToLight, worldNormal, rayDirection, scene.mainLightColor, scene.hitColor, scene.specularExponent
+				);
+				output.color = float4(ambientColor + diffuseColor + specularColor, 1.0);
 				return;
 			case RenderMode.UnlitScene:
 				output.color = float4(scene.hitColor, 1.0);

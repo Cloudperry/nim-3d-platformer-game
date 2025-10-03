@@ -1,3 +1,5 @@
+import Lighting;
+
 struct VertexInput {
   [[vk::location(0)]]
   float3 position;
@@ -46,8 +48,9 @@ FragmentOutput fragmentMain(VertexOutput input) {
   // scaled normals. Use https://x.com/iquilezles/status/1866219178409316362 for better normal transforms?
   float3 worldNormal = mul((float3x3)(uniforms.modelToWorldMat), input.normal);
   float3 lightDirection = -uniforms.mainLightDirection;
-  float3 diffuseColor = max(dot(worldNormal, lightDirection), 0.0) * uniforms.mainLightColor;
-  output.color = float4(uniforms.ambientLightColor * input.color + diffuseColor * input.color, 1.0f);
+	float3 ambientColor = uniforms.ambientLightColor * input.color;
+  float3 diffuseColor = lambertDiffuse(lightDirection, worldNormal, uniforms.mainLightColor, input.color);
+  output.color = float4(ambientColor + diffuseColor, 1.0f);
 
   return output;
 }
