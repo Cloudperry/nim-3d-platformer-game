@@ -195,7 +195,7 @@ proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraA
 
 # ======================================== SDF renderer (sphere tracer) ========================================
 type RenderMode {.size: sizeof(uint32).} = enum
-  ShadedScene, UnlitScene, DebugNormals, DebugStepCounts
+  BasicLitScene, ShadowedLitScene, UnlitScene, DebugNormals, DebugStepCounts
 makeGlObjects(RaiseError, std140Alignment):
   type GpuSdfSceneUniforms = object
     aspect: GLfloat 
@@ -247,7 +247,6 @@ proc initSdfRenderer(win: Window) =
 
   sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
   sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.4, 0.3))
-  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0))
   sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.1))
   sdfRenderer.sceneUbo.setField(specularExponent, 16)
   sdfRenderer.pointLights.data[].add PointLight(
@@ -273,7 +272,11 @@ proc initSdfRenderer(win: Window) =
   room = sdfRenderer.sceneBuilder.cut(windowNorth, room).outputI
   room = sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room).outputI
   sdfRenderer.movingSphere = sdfRenderer.sceneBuilder.addSphere(vec3f(0, 0, 0), 2)
-  discard sdfRenderer.sceneBuilder.smoothlyCombine(room, sdfRenderer.movingSphere.outputI)
+  room = sdfRenderer.sceneBuilder.smoothlyCombine(room, sdfRenderer.movingSphere.outputI).outputI
+  let box1 = sdfRenderer.sceneBuilder.addBox(vec3f(0, -2, 2), vec3f(2, 1.5, 2)).outputI
+  let roofWindow = sdfRenderer.sceneBuilder.addBox(vec3f(0, 5, 6), vec3f(3, 2.5, 3)).outputI
+  room = sdfRenderer.sceneBuilder.combine(room, box1).outputI
+  discard sdfRenderer.sceneBuilder.cut(roofWindow, room)
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
   let vertices = @[
@@ -367,12 +370,14 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
   of SdfRenderer:
     # SDF debug keybinds
     if key == keyF1 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, ShadedScene)
+      sdfRenderer.debugOptUbo.setField(mode, BasicLitScene)
     elif key == keyF2 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, UnlitScene)
+      sdfRenderer.debugOptUbo.setField(mode, ShadowedLitScene)
     elif key == keyF3 and action == kaDown:
+      sdfRenderer.debugOptUbo.setField(mode, UnlitScene)
+    elif key == keyF5 and action == kaDown:
       sdfRenderer.debugOptUbo.setField(mode, DebugNormals)
-    elif key == keyF4 and action == kaDown:
+    elif key == keyF6 and action == kaDown:
       sdfRenderer.debugOptUbo.setField(mode, DebugStepCounts)
     updateCameraAspect(width, height)
 
