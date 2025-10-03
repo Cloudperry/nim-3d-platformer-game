@@ -17,7 +17,7 @@ type
   # because there is no easy way to borrow all operators for a distinct type.
   # ArgIndex* = distinct uint32
 
-makeGlObjects(AlignToSize, dontAlignByType):
+makeSsbo:
   type
     SdfProgramData* = object
       materialData*: array[256, Material]

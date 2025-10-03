@@ -1,5 +1,16 @@
 module Lighting;
 
+public struct PointLight {
+	public float3 position, color;
+	public float constTerm, linearFalloff, expFalloff;
+
+	public float3 getIntensity(float3 surfacePos) {
+		float distance = length(position - surfacePos);
+		float attenuation = 1 / (constTerm + linearFalloff * distance + expFalloff * pow(distance, 2));
+		return attenuation * color;
+	}
+}
+
 public float3 lambertDiffuse(float3 dirToLight, float3 normalVec, float3 lightColor, float3 surfaceColor) {
   float3 diffuseStrength = max(0, dot(normalVec, dirToLight));
   return lightColor * diffuseStrength * surfaceColor;

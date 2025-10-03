@@ -1,6 +1,7 @@
 import std/[strformat, options]
 import ./glad/gl
 import pkg/glm
+import GlUtils
 
 # ======================================== Camera handling and basic transforms ========================================
 const degToRad = PI / 180
@@ -177,16 +178,20 @@ type
   DirectionalLight* = object
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
-  PointLight* = object
-    position*: Vec3f
-    color*: Vec3f
-    constFalloff*, linearFalloff*, expFalloff*: float
-    # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
   Scene*[T] = object
     cam*: RasterizedCamera
     models*: seq[Model[T]]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
+
+makeGlObjects(RaiseError, std140Alignment):
+  type
+    PointLight* = object
+      position*: Vec3f
+      color*: Vec3f
+      constTerm*, linearFalloff*, expFalloff*: GLfloat
+      padding: uint32 # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
+      # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)

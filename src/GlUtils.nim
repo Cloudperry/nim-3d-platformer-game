@@ -78,7 +78,7 @@ const std140Alignment* = collect:
   for (list, align) in [
     # Types aligned to 4 bytes
     (@[GLfloat.getTypeImpl().repr, GLint.getTypeImpl().repr,
-       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr, "enum"], 4),
+       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr], 4),
     # Types aligned to 8 bytes
     (@[Vec2f.getTypeImpl().repr, Vec2i.getTypeImpl().repr,
        Vec2ui.getTypeImpl().repr, Vec2b.getTypeImpl().repr,
@@ -87,30 +87,6 @@ const std140Alignment* = collect:
     (@[Vec3f.getTypeImpl().repr, Vec3i.getTypeImpl().repr,
        Vec3ui.getTypeImpl().repr, Vec3b.getTypeImpl().repr,
        Vec4f.getTypeImpl().repr, Vec4i.getTypeImpl().repr,
-       Vec4ui.getTypeImpl().repr, Vec4b.getTypeImpl().repr,
-       Mat2f.getTypeImpl().repr, Mat3f.getTypeImpl().repr,
-       Mat4f.getTypeImpl().repr, Mat2d.getTypeImpl().repr], 16),
-    # Types aligned to 32 bytes
-    (@[Mat3d.getTypeImpl().repr, Mat4d.getTypeImpl().repr], 32),
-
-  ]:
-    for t in list:
-      {t: align}
-
-const std430Alignment* = collect:
-  for (list, align) in [
-    # Types aligned to 4 bytes
-    (@[GLfloat.getTypeImpl().repr, GLint.getTypeImpl().repr,
-       GLuint.getTypeImpl().repr, GLboolean.getTypeImpl().repr, "enum"], 4),
-    # Types aligned to 8 bytes
-    (@[Vec2f.getTypeImpl().repr, Vec2i.getTypeImpl().repr,
-       Vec2ui.getTypeImpl().repr, Vec2b.getTypeImpl().repr,
-       GLdouble.getTypeImpl().repr], 8),
-    # Types aligned to 12 bytes
-    (@[Vec3f.getTypeImpl().repr, Vec3i.getTypeImpl().repr,
-       Vec3ui.getTypeImpl().repr, Vec3b.getTypeImpl().repr], 12),
-    # Types aligned to 16 bytes (matrices and vectors below this may be wrong for std430)
-    (@[Vec4f.getTypeImpl().repr, Vec4i.getTypeImpl().repr,
        Vec4ui.getTypeImpl().repr, Vec4b.getTypeImpl().repr,
        Mat2f.getTypeImpl().repr, Mat3f.getTypeImpl().repr,
        Mat4f.getTypeImpl().repr, Mat2d.getTypeImpl().repr], 16),
@@ -145,6 +121,12 @@ proc elementSize(t: NimNode): int {.compileTime.} =
 
 const dontAlignByType* = initTable[string, int]()
 
+template glVec*() {.pragma.}
+template glMat*() {.pragma.}
+
+# TODO: Both of these OpenGL std140/430 object generation macros are horribly broken for any struct that isn't very basic. Fix them
+# by making new cleaner macros that insert padding fields into the object (or with plugins when Nim 3.0 comes out?).
+
 macro makeGlObjects*(
   unknownAlignment: static UnknownTypeAlignment = RaiseError, alignTable: static Table[string, int] = dontAlignByType, body: typed
 ): untyped =
@@ -165,9 +147,10 @@ macro makeGlObjects*(
                 if fieldDefSection.kind == nnkIdentDefs:
                   let typeNode = fieldDefSection[^2]
                   var typeImplStr = typeNode.getTypeImpl().repr
-                  # NOTE: Splitting by newline here is a nasty hack to be able to stuff enums in the alignment table
-                  if typeImplStr.startsWith("enum"): typeImplStr = typeImplStr.split("\n")[0] 
                   var alignment = alignTable.getOrDefault(typeImplStr)
+                  if alignment == int.default and typeImplStr.startsWith("enum"): 
+                    # For enums, assume that the user has set correct size to match shader side
+                    alignment = typeNode.getSize()
                   if alignment == int.default:
                     case unknownAlignment
                     of Ignore:
@@ -193,7 +176,73 @@ macro makeGlObjects*(
                       echo fmt"Found field `{fieldDefSection[i]}` that will get aligned to {alignment}"
                     
                     # If alignment is zero, it means that unknownAlignment is set to Ignore and this field doesn't have alignment
-                    if alignment != 0 and alignment in int16.low .. int16.high:
+                    if alignment in 0 .. int16.high:
+                      fieldDefSection[i] = nnkPragmaExpr.newTree(
+                        fieldDefSection[i],
+                        nnkPragma.newTree(
+                          nnkCall.newTree(
+                            newIdentNode("align"),
+                            newLit(alignment)
+                          )
+                        )
+                      )
+                else:
+                  echo &"OpenGL object Error: Invalid field {{\n{toStrLit(fieldDefSection)}\n}} (with node {fieldDefSection.kind})"
+
+  result = body # Pass through with pragmas added
+  result.desym()
+  when defined(glLayoutGenDbg): echo &"Generated objects with alignment {{\n{toStrLit(result)}\n\n}}"
+
+const alignToSize* = initTable[int, int]()
+const sizeExceptions* = {
+  12: 16
+}.toTable
+
+macro makeSsbo*(body: typed): untyped =
+  for n in body:
+    if n.kind == nnkTypeSection:
+      for typeDef in n:
+        if typeDef.kind == nnkTypeDef:
+          let typeName = $typeDef[0]
+          let typeNode = typeDef[2]
+          if typeNode.kind == nnkObjectTy:
+
+            when defined(glLayoutGenDbg):
+              echo fmt"Found object type `{typeName}`"
+
+            if typeNode[2].kind == nnkRecList:
+              let fields = typeNode[2]
+              # Iterate over field groups (lists of fields with same type)
+              for fieldDefSection in fields:
+                if fieldDefSection.kind == nnkIdentDefs:
+                  var typeNode = fieldDefSection[^2]
+                  if typeNode.kind == nnkObjectTy: typeNode = typeNode.getTypeImpl()
+                  # Find alignment of this group
+                  var alignment = 0
+                  if typeNode.kind == nnkSym:
+                   alignment = typeNode.getSize()
+                  elif typeNode.hasCustomPragma(glVec):
+                    alignment = typeNode.getSize()
+                  elif typeNode.hasCustomPragma(glMat):
+                    alignment = typeNode.elementSize()
+                  else:
+                    alignment = typeNode.elementSize()
+
+                  let newAlignment = sizeExceptions.getOrDefault(alignment)
+                  if newAlignment != int.default: alignment = newAlignment
+
+                  if alignment <= 0:
+                    raise newException(Exception, fmt"Failed to align {typeNode} to size, because Nim doesn't know its size.")
+                  
+                  # Align all the fields in this group
+                  for i in 0 .. fieldDefSection.len - 3:
+                    if fieldDefSection[i].kind == nnkPragmaExpr:
+                      echo fmt"OpenGL object error: Invalid field `{toStrLit(fieldDefSection[i])}` (with node {fieldDefSection[i].kind})"
+                      continue
+                    when defined(glLayoutGenDbg):
+                      echo fmt"Found field `{fieldDefSection[i]}` that will get aligned to {alignment}"
+                    
+                    if alignment in 0 .. int16.high:
                       fieldDefSection[i] = nnkPragmaExpr.newTree(
                         fieldDefSection[i],
                         nnkPragma.newTree(

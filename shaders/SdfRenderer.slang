@@ -116,6 +116,8 @@ ConstantBuffer<DebugSettings> debugOpt;
 StructuredBuffer<SdfProgramData> sdfProgData;
 [[vk::binding(1)]]
 StructuredBuffer<SdfInstruction> sdfProg;
+[[vk::binding(2)]]
+StructuredBuffer<PointLight> pointLights;
 
 struct VertexInput {
   [[vk::location(0)]]
@@ -405,17 +407,6 @@ Optional<float3> sphereTrace<T>(
 	return none;
 }
 
-/*
-  // Specular
-  if (dir_to_light.dot(normal) > 0) {
-    Vector3f r = dir_to_light - 2 * (dir_to_light.dot(normal)) * normal;
-    float specular_dot = ray.direction.dot(r);
-    specular_dot = specular_dot >= 0.0f ? specular_dot : 0.0f;
-    answer += incident_intensity.cwiseProduct(specular_color_) * pow(specular_dot, exponent_);
-  }
-  return answer;
-*/
-
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
   // Lighting is hardcoded for now
 	const float numericNormalMinEps = 8e-6;
@@ -438,6 +429,17 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 					dirToLight, worldNormal, rayDirection, scene.mainLightColor, scene.hitColor, scene.specularExponent
 				);
 				output.color = float4(ambientColor + diffuseColor + specularColor, 1.0);
+
+				uint lightCount, stride; pointLights.GetDimensions(lightCount, stride);
+				for (uint i = 0; i < lightCount; i++) {
+					let pointLight = pointLights[i];
+					float3 lightColor = pointLight.getIntensity(hitPos);
+					output.color.xyz += lambertDiffuse(pointLight.position - hitPos, worldNormal, lightColor, scene.hitColor);
+					output.color.xyz += blinnPhongSpecular(
+						pointLight.position - hitPos, worldNormal, rayDirection, lightColor, scene.hitColor, scene.specularExponent
+					);
+				}
+
 				return;
 			case RenderMode.UnlitScene:
 				output.color = float4(scene.hitColor, 1.0);

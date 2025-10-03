@@ -218,6 +218,7 @@ type
     debugOptUbo: ShaderDataBufferRef[DebugSettings]
     sceneProgramData: ShaderDataBufferRef[SdfProgramData]
     sceneProgram: ShaderDataBufferRef[seq[SdfInstruction]]
+    pointLights: ShaderDataBufferRef[seq[PointLight]]
     sceneBuilder: SceneBuilder
     imagePlaneVbo: VertexBufferRef[ScreenSpaceVertex]
     imagePlaneVao: VertexArrayRef
@@ -235,7 +236,6 @@ proc initSdfRenderer(win: Window) =
 
   sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
   sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  # This could probably be GL_STATIC_DRAW as its updated veery rarely, but OpenGL complained when updating it
   sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
     sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = SdfProgramData().some
@@ -243,11 +243,26 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](
     sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = emptySdfProgram().some
   )
+  sdfRenderer.pointLights = initShaderDataBuffer[seq[PointLight]](sdfRenderer.shader, 2, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
 
   sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
   sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.4, 0.3))
+  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0))
   sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.1))
   sdfRenderer.sceneUbo.setField(specularExponent, 16)
+  sdfRenderer.pointLights.data[].add PointLight(
+    position: vec3f(3, 0, 3), color: vec3f(0.7, 0.2, 0),
+    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+  )
+  sdfRenderer.pointLights.data[].add PointLight(
+    position: vec3f(-3, 0, 3), color: vec3f(0.4, 0.5, 0),
+    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+  )
+  sdfRenderer.pointLights.data[].add PointLight(
+    position: vec3f(0, 0, -5), color: vec3f(0.4, 0.4, 0.4),
+    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+  )
+  sdfRenderer.pointLights.upload()
 
   sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
   let innerBox = sdfRenderer.sceneBuilder.addRoundBox(vec3f(0, 0, 0), vec3f(9, 3, 9), 0.5).outputI
