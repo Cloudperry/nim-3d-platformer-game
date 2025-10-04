@@ -404,6 +404,7 @@ Optional<float3> sphereTrace<T>(
 	return none;
 }
 
+// Soft shadows using Sebastian Aaltonen's technique from https://iquilezles.org/articles/rmshadows/
 static const float INF = asfloat(0x7F800000);
 float sphereTraceShadow<T>(
 	T sceneFn, float3 startPos, float3 rayDir, float w,
