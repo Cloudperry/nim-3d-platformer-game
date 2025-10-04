@@ -385,7 +385,7 @@ Optional<float3> sphereTrace<T>(
   // TODO: Dynamic far clip distance based on sceneFn contents?
 
   rayDist = 0;
-	for (stepCount = 0; stepCount < maxSteps; stepCount++) {
+	for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
     distToClosest = sceneFn.sdf(pos);
 		// Dynamic ray hit epsilon. Scale by dist to keep ray from missing far away hits and
@@ -399,11 +399,32 @@ Optional<float3> sphereTrace<T>(
     }
 
     rayDist += distToClosest;
-    if (rayDist > farClipDist)
-      break;
   }
 
 	return none;
+}
+
+static const float INF = asfloat(0x7F800000);
+float sphereTraceShadow<T>(
+	T sceneFn, float3 startPos, float3 rayDir, float w,
+	out float rayDist, out float distToClosest, out uint stepCount, float farClipDist = INF
+) where T : IFloatSdfScene {
+	const float baseHitEps = 0.0001;
+	float res = 1;
+  rayDist = 0; float prevDistToClosest = 1e20;
+	for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
+    distToClosest = sceneFn.sdf(startPos + rayDir * rayDist);
+
+    if (distToClosest < baseHitEps) return 0;
+
+		float y = distToClosest*distToClosest / (2 * prevDistToClosest);
+		float d = sqrt(distToClosest*distToClosest - y*y);
+		res = min( res, d/(w * max(0, rayDist - y)) );
+		prevDistToClosest = distToClosest;
+    rayDist += distToClosest;
+  }
+
+	return res;
 }
 
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection) where T : IFloatSdfScene {
@@ -442,20 +463,22 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 			}
 			case RenderMode.ShadowedLitScene: {
 				const float shadowRayHitEps = 0.0001;
+				const float shadowSoftness = 1.0/32.0;
 				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
-				float3 dirToLight = -scene.mainLightDirection;
-				let mainLightShadowRayHitOpt = sphereTrace(
-					sceneFn, hitPos + worldNormal, dirToLight, rayDist, lastStepLen, stepCount, shadowRayHitEps
-				);
-				float3 diffuseColor = float3(0); float3 specularColor = float3(0);
-				if (!mainLightShadowRayHitOpt.hasValue) {
-					diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
-					specularColor = blinnPhongSpecular(
-						dirToLight, worldNormal, rayDirection, scene.mainLightColor, scene.hitColor, scene.specularExponent
-					);
-				}
-				output.color = float4(ambientColor + diffuseColor + specularColor, 1.0);
+				output.color = float4(ambientColor, 1.0);
 
+				// Directional light
+				float3 dirToLight = -scene.mainLightDirection;
+				let lightContribution = sphereTraceShadow(
+					sceneFn, hitPos + worldNormal, dirToLight, shadowSoftness, rayDist, lastStepLen, stepCount
+				);
+				float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
+				float3 specularColor = blinnPhongSpecular(
+					dirToLight, worldNormal, rayDirection, scene.mainLightColor, scene.hitColor, scene.specularExponent
+				);
+				output.color.xyz += lightContribution * (diffuseColor + specularColor);
+				
+				// Point lights
 				uint lightCount, stride; pointLights.GetDimensions(lightCount, stride);
 				for (uint i = 0; i < lightCount; i++) {
 					let pointLight = pointLights[i];
@@ -463,15 +486,14 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 					if (length(lightColor) > 0.001) {
 						let vecToLight = pointLight.position - hitPos;
 						let dirToLight = normalize(vecToLight);
-						let pointLightShadowRayHitOpt = sphereTrace(
-							sceneFn, hitPos + worldNormal, dirToLight, rayDist, lastStepLen, stepCount, shadowRayHitEps, length(vecToLight)
+						let lightContribution = sphereTraceShadow(
+							sceneFn, hitPos + worldNormal, dirToLight, shadowSoftness, rayDist, lastStepLen, stepCount, length(vecToLight)
 						);
-						if (!pointLightShadowRayHitOpt.hasValue) {
-							output.color.xyz += lambertDiffuse(dirToLight, worldNormal, lightColor, scene.hitColor);
-							output.color.xyz += blinnPhongSpecular(
-								dirToLight, worldNormal, rayDirection, lightColor, scene.hitColor, scene.specularExponent
-							);
-						}
+						float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, lightColor, scene.hitColor);
+						float3 specularColor = blinnPhongSpecular(
+							dirToLight, worldNormal, rayDirection, lightColor, scene.hitColor, scene.specularExponent
+						);
+						output.color.xyz += lightContribution * (diffuseColor + specularColor);
 					}
 				}
 				return;
