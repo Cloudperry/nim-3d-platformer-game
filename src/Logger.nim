@@ -20,6 +20,8 @@ iterator range*[N, T](b: CircularBuffer[N, T]; iStart, iEnd: Natural): T =
     i = i mod b.data.len
 
 # Extend this logging library? It could just write the "terminal status line" in the logs normally when isatty(f) is false.
+# TODO: Handle writing multiple lines between status line updates/writes correctly. Currently the logger probably breaks
+# when printing a lot between status line updates.
 type Logger* = object
   file: File
   perfAvgDuration: Duration = initDuration(milliseconds = 250)

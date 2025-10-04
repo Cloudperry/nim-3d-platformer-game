@@ -425,6 +425,9 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
   if cfg.debugContext: # Enable debug logging when using an OpenGL debug context
+    let glDebugLoggerProc: LoggerProc = proc (msg: string) =
+      logger.log msg
+    setGlDebugLoggerProc glDebugLoggerProc
     setupGlDebugLogging()
 
   win.keyCb = keyCb

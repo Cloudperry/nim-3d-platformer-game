@@ -1,27 +1,28 @@
 import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros, math]
-import ./glad/gl
 import pkg/glm
+import ./glad/gl
+import Logger
 
 # ======================================== Shader class and compilation error handling ========================================
-proc checkError*(shader: GLuint) =
+proc checkErrorAndRaise*(shader: GLuint) =
   var code: GLint
   glGetShaderiv(shader, GL_COMPILE_STATUS, addr code)
   if code.GLboolean == GL_FALSE.GLboolean:
     var length: GLint = 0
     glGetShaderiv(shader, GL_INFO_LOG_LENGTH, addr length)
-    var log = newString(length.int)
-    glGetShaderInfoLog(shader, length, nil, log.cstring)
-    echo log
+    var errLog = newString(length.int)
+    glGetShaderInfoLog(shader, length, nil, errLog.cstring)
+    raise newException(Exception, errLog)
 
-proc checkLinkError*(program: GLuint) =
+proc checkLinkErrorAndRaise*(program: GLuint) =
   var code: GLint
   glGetProgramiv(program, GL_LINK_STATUS, addr code)
   if code.GLboolean == GL_FALSE.GLboolean:
     var length: GLint = 0
     glGetProgramiv(program, GL_INFO_LOG_LENGTH, addr length)
-    var log = newString(length.int)
-    glGetProgramInfoLog(program, length, nil, log.cstring)
-    echo log
+    var errLog = newString(length.int)
+    glGetProgramInfoLog(program, length, nil, errLog.cstring)
+    raise newException(Exception, errLog)
 
 proc glShaderSourceStr*(shader: GLuint, count: GLsizei, s: string, length: ptr GLint) = # Probably doesn't need a wrapper, converter is enough
   var arr = [cstring(s)]
@@ -48,17 +49,17 @@ proc initShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
   var fragmentShader: GLuint = glCreateShader(GL_FRAGMENT_SHADER)
   glShaderSourceStr(vertexShader, 1, vertexSrc, nil)
   glCompileShader(vertexShader)
-  checkError(vertexShader)
+  checkErrorAndRaise(vertexShader)
   glShaderSourceStr(fragmentShader, 1, fragmentSrc, nil)
   glCompileShader(fragmentShader)
-  checkError(fragmentShader)
+  checkErrorAndRaise(fragmentShader)
 
   # Link and clean up
   result.id = glCreateProgram()
   glAttachShader(result.id, vertexShader)
   glAttachShader(result.id, fragmentShader)
   glLinkProgram(result.id)
-  checkLinkError(result.id)
+  checkLinkErrorAndRaise(result.id)
   glDeleteShader(vertexShader)
   glDeleteShader(fragmentShader)
 
@@ -523,6 +524,13 @@ proc use*(a: VertexArrayRef) =
     a.attachedElementBuffer.glBind()
 
 # ======================================== OpenGL error logging setup ========================================
+type LoggerProc* = proc (msg: string) {.closure.}
+let defaultLogger = proc (msg: string) {.closure.} = echo msg
+var logger: proc (msg: string) {.closure.} = defaultLogger
+
+proc setGlDebugLoggerProc*(newLogger: LoggerProc) =
+  logger = newLogger
+
 proc glDebugOutput(
   source: GLenum, glType: GLenum, id: GLuint, severity: GLenum, length: GLsizei,
   message: ptr GLchar, userParam: pointer
@@ -531,38 +539,38 @@ proc glDebugOutput(
   # ignore non-significant error/warning codes
   if id in [131169'u32, 131185'u32, 131218'u32, 131204'u32]: return
 
-  echo "---------------"
-  echo fmt"Debug message ({id}): {messageStr}"
+  logger "---------------"
+  logger fmt"Debug message ({id}): {messageStr}"
 
   case source
-  of GL_DEBUG_SOURCE_API:             echo "Source: API"
-  of GL_DEBUG_SOURCE_WINDOW_SYSTEM:   echo "Source: Window System"
-  of GL_DEBUG_SOURCE_SHADER_COMPILER: echo "Source: Shader Compiler"
-  of GL_DEBUG_SOURCE_THIRD_PARTY:     echo "Source: Third Party"
-  of GL_DEBUG_SOURCE_APPLICATION:     echo "Source: Application"
-  of GL_DEBUG_SOURCE_OTHER:           echo "Source: Other"
-  else:                               echo "Source: Unexpected" # learnopengl.com didn't have any log output for this
+  of GL_DEBUG_SOURCE_API:             logger "Source: API"
+  of GL_DEBUG_SOURCE_WINDOW_SYSTEM:   logger "Source: Window System"
+  of GL_DEBUG_SOURCE_SHADER_COMPILER: logger "Source: Shader Compiler"
+  of GL_DEBUG_SOURCE_THIRD_PARTY:     logger "Source: Third Party"
+  of GL_DEBUG_SOURCE_APPLICATION:     logger "Source: Application"
+  of GL_DEBUG_SOURCE_OTHER:           logger "Source: Other"
+  else:                               logger "Source: Unexpected" # learnopengl.com didn't have any log output for this
 
   case glType
-  of GL_DEBUG_TYPE_ERROR:               echo "Type: Error"
-  of GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: echo "Type: Deprecated Behaviour"
-  of GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  echo "Type: Undefined Behaviour"
-  of GL_DEBUG_TYPE_PORTABILITY:         echo "Type: Portability"
-  of GL_DEBUG_TYPE_PERFORMANCE:         echo "Type: Performance"
-  of GL_DEBUG_TYPE_MARKER:              echo "Type: Marker"
-  of GL_DEBUG_TYPE_PUSH_GROUP:          echo "Type: Push Group"
-  of GL_DEBUG_TYPE_POP_GROUP:           echo "Type: Pop Group"
-  of GL_DEBUG_TYPE_OTHER:               echo "Type: Other"
-  else:                                 echo "Type: Unexpected" # learnopengl.com didn't have any log output for this
+  of GL_DEBUG_TYPE_ERROR:               logger "Type: Error"
+  of GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: logger "Type: Deprecated Behaviour"
+  of GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  logger "Type: Undefined Behaviour"
+  of GL_DEBUG_TYPE_PORTABILITY:         logger "Type: Portability"
+  of GL_DEBUG_TYPE_PERFORMANCE:         logger "Type: Performance"
+  of GL_DEBUG_TYPE_MARKER:              logger "Type: Marker"
+  of GL_DEBUG_TYPE_PUSH_GROUP:          logger "Type: Push Group"
+  of GL_DEBUG_TYPE_POP_GROUP:           logger "Type: Pop Group"
+  of GL_DEBUG_TYPE_OTHER:               logger "Type: Other"
+  else:                                 logger "Type: Unexpected" # learnopengl.com didn't have any log output for this
 
   case severity
-  of GL_DEBUG_SEVERITY_HIGH:         echo "Severity: high"
-  of GL_DEBUG_SEVERITY_MEDIUM:       echo "Severity: medium"
-  of GL_DEBUG_SEVERITY_LOW:          echo "Severity: low"
-  of GL_DEBUG_SEVERITY_NOTIFICATION: echo "Severity: notification"
-  else:                              echo "Severity: Unexpected" # learnopengl.com didn't have any log output for this
+  of GL_DEBUG_SEVERITY_HIGH:         logger "Severity: high"
+  of GL_DEBUG_SEVERITY_MEDIUM:       logger "Severity: medium"
+  of GL_DEBUG_SEVERITY_LOW:          logger "Severity: low"
+  of GL_DEBUG_SEVERITY_NOTIFICATION: logger "Severity: notification"
+  else:                              logger "Severity: Unexpected" # learnopengl.com didn't have any log output for this
 
-  echo ""
+  logger ""
 
 proc setupGlDebugLogging*() =
   var flags: GLint; glGetIntegerv(GL_CONTEXT_FLAGS, addr flags);
@@ -571,6 +579,6 @@ proc setupGlDebugLogging*() =
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS)
     glDebugMessageCallback(glDebugOutput, cast[pointer](nil))
     glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, cast[ptr GLuint](nil), true) # This controls filtering of log messages
-    echo "OpenGL debug logging activated"
+    logger "OpenGL debug logging activated"
   else:
     raise newException(Exception, "Couldn't setup debug logging. Maybe you tried to setup debug logging without a debug OpenGL context?")

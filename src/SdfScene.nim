@@ -95,6 +95,7 @@ proc addInsnWithOutput(prog: var SceneBuilder, i: SdfInstruction): tuple[outputI
   prog.nextOutputI += 1
   prog.nextOutputI = prog.nextOutputI mod maxOutputSlots
 
+  # TODO: Replace with logger?
   when defined(showSdfInstructions):
     echo fmt"Instruction {prog.instructions[].high}: {i}"
 
