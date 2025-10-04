@@ -464,7 +464,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 			}
 			case RenderMode.ShadowedLitScene: {
 				const float shadowRayHitEps = 0.0001;
-				const float shadowSoftness = 1.0/32.0;
+				const float shadowSoftness = 1.0/128.0;
 				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
 				output.color = float4(ambientColor, 1.0);
 

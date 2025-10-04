@@ -311,10 +311,10 @@ proc uninitSdfRenderer() =
 
 proc updateSdfRenderer(win: Window, frame: FrameState) =
   let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
-  let newX: float32 = sin(glfw.getTime().float32 * 0.8) * 10
+  let newX: float32 = sin(glfw.getTime().float32 * 0.7) * 10
   sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
   let sphereInst = sdfRenderer.sceneProgram.data[sdfRenderer.movingSphere.instI]
-  let newY: float32 = sin(glfw.getTime().float32 * 0.8) * 5
+  let newY: float32 = sin(glfw.getTime().float32 * 0.4) * 5
   sdfRenderer.sceneProgramData.data.args[sphereInst.argsI.uint32 + 1] = cast[uint32](newY)
 
 proc setUniforms(c: RasterizedCamera) =
