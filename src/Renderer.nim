@@ -246,20 +246,20 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.pointLights = initShaderDataBuffer[seq[PointLight]](sdfRenderer.shader, 2, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
 
   sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
-  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.4, 0.3))
-  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.1))
+  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.3, 0.2) / 12)
+  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.01))
   sdfRenderer.sceneUbo.setField(specularExponent, 16)
   sdfRenderer.pointLights.data[].add PointLight(
-    position: vec3f(3, 0, 3), color: vec3f(0.7, 0.2, 0),
-    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+    position: vec3f(3, 1.5, 3), color: vec3f(0.8, 0.4, 0) / 3,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
   sdfRenderer.pointLights.data[].add PointLight(
-    position: vec3f(-3, 0, 3), color: vec3f(0.4, 0.5, 0),
-    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+    position: vec3f(-3, 1.5, 3), color: vec3f(0, 0.5, 0.7) / 3,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
   sdfRenderer.pointLights.data[].add PointLight(
-    position: vec3f(0, 0, -5), color: vec3f(0.4, 0.4, 0.4),
-    constTerm: 1, linearFalloff: 1, expFalloff: 1/9
+    position: vec3f(0, 1.5, -5), color: vec3f(0.4, 0.4, 0.4) / 8,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
   sdfRenderer.pointLights.upload()
 
@@ -273,7 +273,7 @@ proc initSdfRenderer(win: Window) =
   room = sdfRenderer.sceneBuilder.cut(sdfRenderer.dynamicCutter.outputI, room).outputI
   sdfRenderer.movingSphere = sdfRenderer.sceneBuilder.addSphere(vec3f(0, 0, 0), 2)
   room = sdfRenderer.sceneBuilder.smoothlyCombine(room, sdfRenderer.movingSphere.outputI).outputI
-  let box1 = sdfRenderer.sceneBuilder.addBox(vec3f(0, -2, 2), vec3f(2, 1.5, 2)).outputI
+  let box1 = sdfRenderer.sceneBuilder.addBox(vec3f(0, -2, 6), vec3f(2.5, 1, 2.5)).outputI
   let roofWindow = sdfRenderer.sceneBuilder.addBox(vec3f(0, 5, 6), vec3f(3, 2.5, 3)).outputI
   room = sdfRenderer.sceneBuilder.combine(room, box1).outputI
   discard sdfRenderer.sceneBuilder.cut(roofWindow, room)
@@ -294,6 +294,8 @@ proc initSdfRenderer(win: Window) =
   sdfRenderer.imagePlaneVao = initVertexArray()
   sdfRenderer.imagePlaneVao.use()
   sdfRenderer.imagePlaneVbo.use()
+
+  glEnable(GL_FRAMEBUFFER_SRGB)
 
 proc uninitSdfRenderer() =
   sdfRenderer.imagePlaneVbo.cleanup()
