@@ -11,6 +11,11 @@ type
     target: TargetFormat
     stage: ShaderStage
 
+proc fileExt(t: TargetFormat): string =
+  case t
+  of Glsl: "glsl"
+  of SpirV: "spv"
+
 proc short(s: ShaderStage): string = 
   case s
   of Fragment: "Frag"
@@ -19,7 +24,7 @@ proc short(s: ShaderStage): string =
 
 proc updateOutFile(o: var SlangcOptions) =
   let inputName = o.inFile.split(".")
-  o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target}"
+  o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target.fileExt()}"
 proc fillDefaultOpts(o: var SlangcOptions) =
   if o.outFile.len == 0:
     o.updateOutFile()

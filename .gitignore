@@ -4,8 +4,9 @@
 !*.*
 !*/
 
-# Ignore Slang generated .glsl files
+# Ignore Slang generated shader files
 *.glsl
+*.spv
 
 # Ignore RenderDoc files
 *.cap

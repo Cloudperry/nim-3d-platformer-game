@@ -120,7 +120,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   rasterizer.uniforms.setField(mainLightColor, s.dirLight.color)
   rasterizer.uniforms.setField(ambientLightColor, s.ambientLightColor)
 
-proc initRasterizer(win: Window) =
+proc initRasterizer(win: Window, useSpirV: bool) =
   let
     cube = makeCube(shapeColor)
     pyramid = makePyramid(shapeColor)
@@ -146,7 +146,10 @@ proc initRasterizer(win: Window) =
   )
 
   # Compile and link shader and check errors
-  rasterizer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  if not useSpirV:
+    rasterizer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  else:
+    rasterizer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
   rasterizer.uniforms = initShaderDataBuffer[GpuSceneUniforms](rasterizer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
 
@@ -230,11 +233,14 @@ var sdfRenderer = SdfRendererState()
 proc updateCameraAspect(width, height: int) =
   glViewport(0, 0, width, height)
 
-proc initSdfRenderer(win: Window) =
+proc initSdfRenderer(win: Window, useSpirV: bool) =
   let (width, height) = glfw.framebufferSize(win)
   updateCameraAspect(width, height)
 
-  sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  if not useSpirV:
+    sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  else:
+    sdfRenderer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
   sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
@@ -389,16 +395,20 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   if newMonitor.handle != nil: # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(slangPath = "", mode: RendererMode) =
+proc compileShaders(mode: RendererMode, useSpirV: bool, slangPath = "") =
   let shaderFile = case mode
   of Rasterizer: "RasterizedRenderer.slang"
   of SdfRenderer: "SdfRenderer.slang"
   
-  # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API better by adding init proc.
+  # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
+  # in Slangc better by adding init proc.
   var opts = SlangcOptions(entryPoint: "vertexMain")
+  if not useSpirV:
+    opts.target = Glsl
+  else:
+    opts.target = SpirV
   opts.stage = Vertex
   opts.inFile = shadersDir / shaderFile
-  opts.target = Glsl
   if slangPath.len > 0: opts.slangPath = slangPath
   state.vertexShaderText = compileShaderOrRaise(opts)
 
@@ -425,9 +435,12 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   if not gladLoadGL(getProcAddress):
     quit "Error initialising OpenGL"
   if cfg.debugContext: # Enable debug logging when using an OpenGL debug context
+    #[
+    This proc probably needs to be global for it to not cause a segfault as the logger proc
     let glDebugLoggerProc: LoggerProc = proc (msg: string) =
       logger.log msg
     setGlDebugLoggerProc glDebugLoggerProc
+    ]#
     setupGlDebugLogging()
 
   win.keyCb = keyCb
@@ -467,14 +480,14 @@ proc updateDrawLoop(win: Window, frame: var FrameState; updateProc, drawProc: pr
 
     glfw.pollEvents()
 
-proc main(slangPath: string = "", mode: RendererMode = Rasterizer) =
-  compileShaders(slangPath, mode)
+proc main(slangPath: string = "", mode: RendererMode = Rasterizer, useSpirV = false) =
+  compileShaders(mode, useSpirV, slangPath)
 
   var (win, cfg) = initGlfwAndGlad(mode)
   win.initSharedState(mode)
   case mode
-  of Rasterizer: win.initRasterizer()
-  of SdfRenderer: win.initSdfRenderer()
+  of Rasterizer: win.initRasterizer(useSpirV)
+  of SdfRenderer: win.initSdfRenderer(useSpirV)
 
   var frame = FrameState()
   case mode

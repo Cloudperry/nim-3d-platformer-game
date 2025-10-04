@@ -24,9 +24,11 @@ proc checkLinkErrorAndRaise*(program: GLuint) =
     glGetProgramInfoLog(program, length, nil, errLog.cstring)
     raise newException(Exception, errLog)
 
-proc glShaderSourceStr*(shader: GLuint, count: GLsizei, s: string, length: ptr GLint) = # Probably doesn't need a wrapper, converter is enough
-  var arr = [cstring(s)]
-  glShaderSource(shader, count, cast[cstringArray](addr arr), length)
+proc glShaderSourceStr*(shader: GLuint, count: GLsizei, s: string) = # Probably doesn't need a wrapper, converter is enough
+  let shaderStr = allocCStringArray([s])
+  glShaderSource(shader, count, shaderStr, cast[ptr GLint](nil))
+proc glShaderBinaryStr*(count: GLsizei, shaders: ptr GLuint, s: string) = # Probably doesn't need a wrapper, converter is enough
+  glShaderBinary(count, shaders, GL_SHADER_BINARY_FORMAT_SPIR_V, cast[pointer](addr s[0]), s.len.GLint)
 
 converter toGlSizeIPtr*(n: int): GLsizeiptr = GLsizeiptr(n)
 converter toGlSizeI*(n: int): GLsizei = GLsizei(n)
@@ -47,11 +49,34 @@ proc initShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
   # Compile shaders
   let vertexShader: GLuint = glCreateShader(GL_VERTEX_SHADER)
   var fragmentShader: GLuint = glCreateShader(GL_FRAGMENT_SHADER)
-  glShaderSourceStr(vertexShader, 1, vertexSrc, nil)
+  glShaderSourceStr(vertexShader, 1, vertexSrc)
   glCompileShader(vertexShader)
   checkErrorAndRaise(vertexShader)
-  glShaderSourceStr(fragmentShader, 1, fragmentSrc, nil)
+  glShaderSourceStr(fragmentShader, 1, fragmentSrc)
   glCompileShader(fragmentShader)
+  checkErrorAndRaise(fragmentShader)
+
+  # Link and clean up
+  result.id = glCreateProgram()
+  glAttachShader(result.id, vertexShader)
+  glAttachShader(result.id, fragmentShader)
+  glLinkProgram(result.id)
+  checkLinkErrorAndRaise(result.id)
+  glDeleteShader(vertexShader)
+  glDeleteShader(fragmentShader)
+
+proc initBinShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
+  result = new ShaderRef
+
+  # Compile shaders
+  let vertexShader: GLuint = glCreateShader(GL_VERTEX_SHADER)
+  var fragmentShader: GLuint = glCreateShader(GL_FRAGMENT_SHADER)
+  # glShaderSourceStr(vertexShader, 1, vertexSrc, nil)
+  glShaderBinaryStr(1, addr vertexShader, vertexSrc)
+  glSpecializeShader(vertexShader, "main", 0, cast[ptr GLuint](nil), cast[ptr GLuint](nil))
+  checkErrorAndRaise(vertexShader)
+  glShaderBinaryStr(1, addr fragmentShader, fragmentSrc)
+  glSpecializeShader(fragmentShader, "main", 0, cast[ptr GLuint](nil), cast[ptr GLuint](nil))
   checkErrorAndRaise(fragmentShader)
 
   # Link and clean up
