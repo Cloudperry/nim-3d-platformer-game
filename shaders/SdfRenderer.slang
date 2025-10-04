@@ -405,12 +405,13 @@ Optional<float3> sphereTrace<T>(
 }
 
 // Soft shadows using Sebastian Aaltonen's technique from https://iquilezles.org/articles/rmshadows/
+// TODO: Replace this with something else? This causes banding like artifacts in the shadow's penumbra.
 static const float INF = asfloat(0x7F800000);
 float sphereTraceShadow<T>(
 	T sceneFn, float3 startPos, float3 rayDir, float w,
 	out float rayDist, out float distToClosest, out uint stepCount, float farClipDist = INF
 ) where T : IFloatSdfScene {
-	const float baseHitEps = 0.0001;
+	const float baseHitEps = 0.01;
 	float res = 1;
   rayDist = 0; float prevDistToClosest = 1e20;
 	for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
@@ -463,7 +464,6 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 				return;
 			}
 			case RenderMode.ShadowedLitScene: {
-				const float shadowRayHitEps = 0.0001;
 				const float shadowSoftness = 1.0/128.0;
 				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
 				output.color = float4(ambientColor, 1.0);
@@ -529,6 +529,9 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
 	renderScene(SdfProgramScene(), output, rayDirection);
+	// NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
+	// cause visible interference patterns between the two types of dithering.
+	output.color += gradientNoiseWithStrength(input.pos.xy, 1.0);
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);

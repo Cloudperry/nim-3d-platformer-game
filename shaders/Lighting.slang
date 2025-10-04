@@ -26,3 +26,12 @@ public float3 blinnPhongSpecular(float3 dirToLight, float3 normal, float3 lookDi
   float specularDot = max(0, dot(normal, halfDir));
   return lightColor * pow(specularDot, specularExponent) * surfaceColor;
 }
+
+// Interleaved gradient noise by Jorge Jimenez from Call of Duty: Advanced Warfare (found from https://blog.frost.kiwi/GLSL-noise-and-radial-gradient/)
+public float gradientNoise(float2 uv) {
+	return fract(52.9829189 * fract(dot(uv, float2(0.06711056, 0.00583715))));
+}
+
+public float gradientNoiseWithStrength(float2 uv, float strength) {
+	return (strength / 255.0) * gradientNoise(uv) - (strength / 2 / 255.0);
+}
