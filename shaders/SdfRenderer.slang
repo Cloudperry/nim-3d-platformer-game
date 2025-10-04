@@ -127,7 +127,7 @@ struct VertexInput {
 }
 
 struct VertexOutput {
-  float4 pos : SV_Position;
+  float4 fragCoord : SV_Position;
   float2 fragUv;
 }
 
@@ -138,7 +138,7 @@ struct FragmentOutput {
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
   VertexOutput output;
-  output.pos = float4(input.pos, 0.0, 1.0);
+  output.fragCoord = float4(input.pos, 0.0, 1.0);
   output.fragUv = input.uv;
   return output;
 }
@@ -376,7 +376,7 @@ float3 exactNormal<T>(T sceneFn, in float3 p) where T : IDifferentiableFloatSdfS
 
 static const int maxSteps = 128;
 Optional<float3> sphereTrace<T>(
-	T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float distToClosest, out uint stepCount,
+	T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float closestSurface, out uint stepCount,
 	float baseHitEps = 1e-6, float farClipDist = 100
 ) where T : IFloatSdfScene {
 	const float minHitEps = 1e-8; // This might be too small
@@ -387,43 +387,70 @@ Optional<float3> sphereTrace<T>(
   rayDist = 0;
 	for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
-    distToClosest = sceneFn.sdf(pos);
+    closestSurface = sceneFn.sdf(pos);
 		// Dynamic ray hit epsilon. Scale by dist to keep ray from missing far away hits and
 		// by step budget to prevent missing surfaces at grazing angles. 
 		float stepCountScale = 1.0 + maxEpsStepCountScaling * pow(stepCount / float(maxSteps), 10); // On the GPU, pow might be heavy?
 		float hitEps = clamp(baseHitEps * rayDist * stepCountScale, minHitEps, maxHitEps); 
 
-    if (distToClosest < hitEps) {
-      float3 hitPos = pos + rayDir * distToClosest;
+    if (closestSurface < hitEps) {
+      float3 hitPos = pos + rayDir * closestSurface;
 			return hitPos;
     }
 
-    rayDist += distToClosest;
+    rayDist += closestSurface;
   }
 
 	return none;
 }
 
-// Soft shadows using Sebastian Aaltonen's technique from https://iquilezles.org/articles/rmshadows/
-// TODO: Replace this with something else? This causes banding like artifacts in the shadow's penumbra.
-static const float INF = asfloat(0x7F800000);
+static const uint secondaryRayMaxSteps = 128;
+
+// Advanced and a bit slow 'close to ground truth' soft shadows (from https://iquilezles.org/articles/rmshadows/). This
+// could probably be a lot faster and more accurate if there was a better way of finding the deepest point inside
+// the shape than taking const sized steps inside. Still has some banding like artifacts, but not easily fixable.
+// Maybe add a light blur pass to mask banding? Another better option might be to jitter the rays just a little bit to
+// break up the banding lines without changing the overall gradient structure.
 float sphereTraceShadow<T>(
+	T sceneFn, float3 startPos, float3 rayDir, float w, float surfaceCamDist,
+	out float rayDist, out float closestSurface, out uint stepCount, float farClipDist = 100
+) where T : IFloatSdfScene {
+	float res = 1;
+  rayDist = 0;
+	for (stepCount = 0; stepCount < secondaryRayMaxSteps && rayDist <= farClipDist; stepCount++) {
+    closestSurface = sceneFn.sdf(startPos + rayDir * rayDist);
+		res = min( res, closestSurface / (w * rayDist) );
+		// Original version: rayDist += clamp(h, 0.005, 0.50);
+		// Having a max bound didn't seem to do anything other than slow down marching for no reason
+		float surfaceDistScaling = max(0.5, surfaceCamDist / 12); 
+		// Too big values of the max below cause banding shadow transitions and wobbly shadow edges at super high values.
+		// Too low values are bad for perf and cause weird bright 'reflections' of shapes when up close to a surface.
+		rayDist += max(closestSurface, surfaceDistScaling * 0.035); 
+    if ( res < -1.0 || rayDist > farClipDist ) break;
+  }
+
+	res = max(res,-1.0);
+  return 0.25*(1.0+res)*(1.0+res)*(2.0-res);
+}
+
+// Soft shadows using Sebastian Aaltonen's technique from https://iquilezles.org/articles/rmshadows/ (didn't work that well)
+float sphereTraceShadowSeb<T>(
 	T sceneFn, float3 startPos, float3 rayDir, float w,
-	out float rayDist, out float distToClosest, out uint stepCount, float farClipDist = INF
+	out float rayDist, out float closestSurface, out uint stepCount, float farClipDist = 100
 ) where T : IFloatSdfScene {
 	const float baseHitEps = 0.01;
 	float res = 1;
-  rayDist = 0; float prevDistToClosest = 1e20;
-	for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
-    distToClosest = sceneFn.sdf(startPos + rayDir * rayDist);
+  rayDist = 0; float prevClosestSurface = 1e20;
+	for (stepCount = 0; stepCount < secondaryRayMaxSteps && rayDist <= farClipDist; stepCount++) {
+    closestSurface = sceneFn.sdf(startPos + rayDir * rayDist);
 
-    if (distToClosest < baseHitEps) return 0;
+    if (closestSurface < baseHitEps) return 0;
 
-		float y = distToClosest*distToClosest / (2 * prevDistToClosest);
-		float d = sqrt(distToClosest*distToClosest - y*y);
+		float y = closestSurface*closestSurface / (2 * prevClosestSurface);
+		float d = sqrt(closestSurface*closestSurface - y*y);
 		res = min( res, d/(w * max(0, rayDist - y)) );
-		prevDistToClosest = distToClosest;
-    rayDist += distToClosest;
+		prevClosestSurface = closestSurface;
+    rayDist += closestSurface;
   }
 
 	return res;
@@ -443,13 +470,12 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 
 		switch(debugOpt.mode) {
 			case RenderMode.BasicLitScene: {
-				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
+				output.color = float4(scene.ambientLightColor * scene.hitColor, 1.0);
 				float3 dirToLight = -scene.mainLightDirection;
-				float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
-				float3 specularColor = blinnPhongSpecular(
+				output.color.xyz += lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
+				output.color.xyz += blinnPhongSpecular(
 					dirToLight, worldNormal, rayDirection, scene.mainLightColor, scene.hitColor, scene.specularExponent
 				);
-				output.color = float4(ambientColor + diffuseColor + specularColor, 1.0);
 
 				uint lightCount, stride; pointLights.GetDimensions(lightCount, stride);
 				for (uint i = 0; i < lightCount; i++) {
@@ -464,14 +490,17 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 				return;
 			}
 			case RenderMode.ShadowedLitScene: {
-				const float shadowSoftness = 1.0/128.0;
+				const float shadowSoftness = 1.0/200.0; // Shadow softness as radian angle. Smaller is sharper.
+				const float secondaryRayNudgeDist = 0.05; // How far to 'nudge' the secondary ray's starting point away from surface
 				float3 ambientColor = scene.ambientLightColor * scene.hitColor;
 				output.color = float4(ambientColor, 1.0);
 
 				// Directional light
 				float3 dirToLight = -scene.mainLightDirection;
+				float surfaceCamDist = rayDist;
+				// Use hitPos + 10 * stepLen * worldNormal here for an interesting/nice looking glitch effect 
 				let lightContribution = sphereTraceShadow(
-					sceneFn, hitPos + worldNormal, dirToLight, shadowSoftness, rayDist, lastStepLen, stepCount
+					sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight, shadowSoftness, rayDist, surfaceCamDist, lastStepLen, stepCount
 				);
 				float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
 				float3 specularColor = blinnPhongSpecular(
@@ -488,7 +517,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 						let vecToLight = pointLight.position - hitPos;
 						let dirToLight = normalize(vecToLight);
 						let lightContribution = sphereTraceShadow(
-							sceneFn, hitPos + worldNormal, dirToLight, shadowSoftness, rayDist, lastStepLen, stepCount, length(vecToLight)
+							sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight, shadowSoftness, rayDist, surfaceCamDist, lastStepLen, stepCount, length(vecToLight)
 						);
 						float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, lightColor, scene.hitColor);
 						float3 specularColor = blinnPhongSpecular(
@@ -531,7 +560,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
 	renderScene(SdfProgramScene(), output, rayDirection);
 	// NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
 	// cause visible interference patterns between the two types of dithering.
-	output.color += gradientNoiseWithStrength(input.pos.xy, 1.0);
+	output.color += gradientNoiseWithStrength(input.fragCoord.xy, 1.0);
 
   // Ray direction visualization
   // output.color = float4(0.5 * rayDir + 0.5, 1.0);
