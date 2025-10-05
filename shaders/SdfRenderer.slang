@@ -406,6 +406,13 @@ Optional<float3> sphereTrace<T>(
 
 static const uint secondaryRayMaxSteps = 128;
 
+// NOTE: Both of the shadowing methods below have banding issues. This is not a problem of the methods and its instead caused by
+// incorrect SDFs. Especially the subtraction operator creates incorrect SDFs that cause soft shadow banding. This can be fixed by
+// for example making another SDF bytecode interpreter that replaces the problematic operators with accurate ones. They are slow,
+// because branching is required to select the correct value based on whether the point is inside/outside A and inside/outside B.
+// It should not matter much if the shadow ray only switches to the slow method when up close to a surface. Another fix would be
+// to always create distance-correct SDFs, but that is very hard to do in general.
+
 // Advanced and a bit slow 'close to ground truth' soft shadows (from https://iquilezles.org/articles/rmshadows/). This
 // could probably be a lot faster and more accurate if there was a better way of finding the deepest point inside
 // the shape than taking const sized steps inside. Still has some banding like artifacts, but not easily fixable.
