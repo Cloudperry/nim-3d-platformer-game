@@ -244,19 +244,26 @@ public T opXor<T>(T d1, T d2) where T : __BuiltinFloatingPointType {
 
 [Differentiable]
 public T opSmoothUnion<T>( T d1, T d2, T k ) where T : __BuiltinFloatingPointType {
-    k *= (T) 4.0;
-    T h = max(k-abs(d1-d2), (T) 0.0);
-    return min(d1, d2) - h*h * (T) 0.25/k;
+	k *= (T) 4.0;
+	T h = max(k-abs(d1-d2), (T) 0.0);
+	return min(d1, d2) - h*h * (T) 0.25/k;
 }
 
 [Differentiable]
 public T opSmoothSubtraction<T>( T d1, T d2, T k ) where T : __BuiltinFloatingPointType {
-    return -opSmoothUnion(d1,-d2,k);
+	return -opSmoothUnion(d1,-d2,k);
 }
 
 [Differentiable]
 public T opSmoothIntersection<T>( T d1, T d2, T k ) where T : __BuiltinFloatingPointType {
-    return -opSmoothUnion(-d1,-d2,k);
+	return -opSmoothUnion(-d1,-d2,k);
+}
+
+// Quadratic polynomial smooth min
+public float smin(float a, float b, float k) {
+	k *= 4.0;
+	float h = max( k-abs(a-b), 0.0 )/k;
+	return min(a,b) - h*h*k*(1.0/4.0);
 }
 
 // TODO: Add rotation/translation and scaling (need function pointers or a way to pass functions as args,
