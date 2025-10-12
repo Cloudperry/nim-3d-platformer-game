@@ -10,7 +10,6 @@ license = "MIT"
 
 # Dependencies
 requires "nim >= 2.3.1"
-requires "cligen >= 1.9.0"
-requires "opengl >= 1.2.9"
+requires "cligen == 1.9.3"
 requires "https://github.com/stavenko/nim-glm#47d5f8681f3c462b37e37ebc5e7067fa5cba4d16"
-requires "glfw"
+requires "glfw == 3.4.0.5"
