@@ -116,9 +116,9 @@ proc makeGlBuffers[T](s: Scene[T]) =
     rasterizer.vertexArrays[i].attachElementBuffer(rasterizer.elementBuffers[i])
 
 proc setSceneUniforms[T](s: Scene[T]) =
-  rasterizer.uniforms.setField(mainLightDirection, s.dirLight.direction)
-  rasterizer.uniforms.setField(mainLightColor, s.dirLight.color)
-  rasterizer.uniforms.setField(ambientLightColor, s.ambientLightColor)
+  rasterizer.uniforms.mainLightDirection = s.dirLight.direction
+  rasterizer.uniforms.mainLightColor = s.dirLight.color
+  rasterizer.uniforms.ambientLightColor = s.ambientLightColor
 
 proc initRasterizer(win: Window, useSpirV: bool) =
   let
@@ -178,7 +178,7 @@ proc updateRasterizer(win: Window, frame: FrameState) =
   discard
 
 proc setUniforms(m: Model) =
-  rasterizer.uniforms.setField(modelToWorldMat, m.transform.getTransformMat())
+  rasterizer.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
 proc setUniforms(c: RasterizedCamera)
 proc drawRasterizer(win: Window) =
@@ -251,19 +251,19 @@ proc initSdfRenderer(win: Window, useSpirV: bool) =
   )
   sdfRenderer.pointLights = initShaderDataBuffer[seq[PointLight]](sdfRenderer.shader, 2, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
 
-  sdfRenderer.sceneUbo.setField(mainLightDirection, vec3f(-5, -5, -3).normalize())
-  sdfRenderer.sceneUbo.setField(mainLightColor, vec3f(0.6, 0.3, 0.2) / 12)
-  sdfRenderer.sceneUbo.setField(ambientLightColor, vec3f(0.01))
-  sdfRenderer.sceneUbo.setField(specularExponent, 16)
-  sdfRenderer.pointLights.data[].add PointLight(
+  sdfRenderer.sceneUbo.mainLightDirection = vec3f(-5, -5, -3).normalize()
+  sdfRenderer.sceneUbo.mainLightColor = vec3f(0.6, 0.3, 0.2) / 12
+  sdfRenderer.sceneUbo.ambientLightColor = vec3f(0.01)
+  sdfRenderer.sceneUbo.specularExponent = 16
+  sdfRenderer.pointLights.add PointLight(
     position: vec3f(3, 1.5, 3), color: vec3f(0.8, 0.4, 0) / 3,
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
-  sdfRenderer.pointLights.data[].add PointLight(
+  sdfRenderer.pointLights.add PointLight(
     position: vec3f(-3, 1.5, 3), color: vec3f(0, 0.5, 0.7) / 3,
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
-  sdfRenderer.pointLights.data[].add PointLight(
+  sdfRenderer.pointLights.add PointLight(
     position: vec3f(0, 1.5, -5), color: vec3f(0.4, 0.4, 0.4) / 8,
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
@@ -314,13 +314,13 @@ proc updateSdfRenderer(win: Window, frame: FrameState) =
 
 proc setUniforms(c: RasterizedCamera) =
   if c.rasterizerOn:
-    rasterizer.uniforms.setField(worldToViewMat, c.viewMat)
-    rasterizer.uniforms.setField(viewToClipMat, c.projectionMat)
+    rasterizer.uniforms.worldToViewMat = c.viewMat
+    rasterizer.uniforms.viewToClipMat = c.projectionMat
   else:
-    sdfRenderer.sceneUbo.setField(camPos, c.pos)
-    sdfRenderer.sceneUbo.setField(camForward, c.forward)
-    sdfRenderer.sceneUbo.setField(camRight, c.right)
-    sdfRenderer.sceneUbo.setField(camUp, c.up)
+    sdfRenderer.sceneUbo.camPos = c.pos
+    sdfRenderer.sceneUbo.camForward = c.forward
+    sdfRenderer.sceneUbo.camRight = c.right
+    sdfRenderer.sceneUbo.camUp = c.up
 
 proc drawSdfRenderer(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
@@ -330,10 +330,10 @@ proc drawSdfRenderer(win: Window) =
   sdfRenderer.sceneUbo.use(sdfRenderer.shader)
   # TODO: Move this into the appropriate callback
   let (width, height) = glfw.framebufferSize(win)
-  sdfRenderer.sceneUbo.setField(aspect, width / height)
-  sdfRenderer.sceneUbo.setField(hitColor, vec3f(1, 1, 1))
-  sdfRenderer.sceneUbo.setField(bgColor, vec3f(0.2, 0.3, 0.3))
-  sdfRenderer.sceneUbo.setField(fov, 80)
+  sdfRenderer.sceneUbo.aspect = width / height
+  sdfRenderer.sceneUbo.hitColor = vec3f(1, 1, 1)
+  sdfRenderer.sceneUbo.bgColor = vec3f(0.2, 0.3, 0.3)
+  sdfRenderer.sceneUbo.fov = 80
   state.camera.setUniforms()
 
   sdfRenderer.imagePlaneVao.use()
@@ -373,15 +373,15 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
   of SdfRenderer:
     # SDF debug keybinds
     if key == keyF1 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, BasicLitScene)
+      sdfRenderer.debugOptUbo.mode = BasicLitScene
     elif key == keyF2 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, ShadowedLitScene)
+      sdfRenderer.debugOptUbo.mode = ShadowedLitScene
     elif key == keyF3 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, UnlitScene)
+      sdfRenderer.debugOptUbo.mode = UnlitScene
     elif key == keyF5 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, DebugNormals)
+      sdfRenderer.debugOptUbo.mode = DebugNormals
     elif key == keyF6 and action == kaDown:
-      sdfRenderer.debugOptUbo.setField(mode, DebugStepCounts)
+      sdfRenderer.debugOptUbo.mode = DebugStepCounts
     updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =

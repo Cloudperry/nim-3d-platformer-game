@@ -371,6 +371,12 @@ template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
 template setField*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) =
   b.data.field = value
   b.uploadField(field)
+# This only works cleanly when the UBO/SSBO class doesn't have any fields that are meant to be directly set
+template `.=`*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) = 
+  b.setField(field, value)
+proc add*[T1, T2](b: var ShaderDataBufferRef[T1], value: T2) =
+  when T1 is object: {.fatal: "This proc is only meant for seq UBOs/SSBOs."}
+  else: b.data[].add value
 
 proc cleanup*(s: var ShaderDataBufferRef) =
   glDeleteBuffers(1, addr s.id)
