@@ -285,18 +285,13 @@ proc initSdfRenderer(win: Window, useSpirV: bool) =
   discard sdfRenderer.sceneBuilder.cut(roofWindow, room)
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
-  let vertices = @[
+  let imagePlaneTriangle = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
-    ScreenSpaceVertex(pos: vec2f(1.0, -1.0), uv: vec2f(1.0, 0.0)), # Bottom right
-    ScreenSpaceVertex(pos: vec2f(1.0, 1.0), uv: vec2f(1.0, 1.0)), # Top right
-    ScreenSpaceVertex(pos: vec2f(-1.0, 1.0), uv: vec2f(0.0, 1.0)) # Top left
-  ]
-  let imagePlaneTriangles = @[
-    vertices[0], vertices[1], vertices[2],
-    vertices[0], vertices[2], vertices[3]
+    ScreenSpaceVertex(pos: vec2f(3.0, -1.0), uv: vec2f(2.0, 0.0)), # Bottom right
+    ScreenSpaceVertex(pos: vec2f(-1.0, 3.0), uv: vec2f(0.0, 2.0)) # Top left
   ]
 
-  sdfRenderer.imagePlaneVbo = initVertexBuffer (imagePlaneTriangles, GL_STATIC_DRAW).some
+  sdfRenderer.imagePlaneVbo = initVertexBuffer (imagePlaneTriangle, GL_STATIC_DRAW).some
   sdfRenderer.imagePlaneVao = initVertexArray()
   sdfRenderer.imagePlaneVao.use()
   sdfRenderer.imagePlaneVbo.use()
