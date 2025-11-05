@@ -9,7 +9,8 @@ type
     AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
     # Shapes
     Sphere, Box, RoundBox, BoxFrame, Cone, CappedCone, HexPrism, TriPrism, Capsule,
-    CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad
+    CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad,
+    Plane
   Material* = object
     color: Vec3f
     metalness: GLfloat
@@ -187,6 +188,10 @@ proc addTriangle*(prog: var SceneBuilder; p, a, b, c: Vec3f): tuple[outputI: uin
 proc addQuad*(prog: var SceneBuilder; p, a, b, c, d: Vec3f): tuple[outputI: uint8, instI: int] =
   makeUintArgs [p.x, p.y, p.z, a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z]
   result = prog.addInsnWithOutput makeInsn(Quad, prog.nextArgI, prog.nextOutputI, sizeof(args) div 4)
+  prog.addArgs args
+proc addPlane*(prog: var SceneBuilder; p, n: Vec3f; h: GLfloat): tuple[outputI: uint8, instI: int] =
+  makeUintArgs [p.x, p.y, p.z, n.x, n.y, n.z, h]
+  result = prog.addInsnWithOutput makeInsn(Plane, prog.nextArgI, prog.nextOutputI, sizeof(args) div 4)
   prog.addArgs args
 
 proc assertContiguousInputs(inputs: openArray[uint8]) =

@@ -155,7 +155,7 @@ public T sdOctahedron<T>( vector<T, 3> p, T s ) where T : __BuiltinFloatingPoint
 
 [Differentiable]
 // Pyramid - exact
-// NOTE: Be careful with this pyramid. It doesn't have a bottom plane, so looking in from the bottom produces completely broken normals.
+// NOTE: Be careful with this pyramid. It doesn't have a bottom quad, so looking in from the bottom produces completely broken normals.
 public T sdPyramid<T>(vector<T, 3> p, T h) where T : __BuiltinFloatingPointType {
   T m2 = h * h + (T)0.25;
 
@@ -223,6 +223,13 @@ public T udQuad<T>( vector<T, 3> p, vector<T, 3> a, vector<T, 3> b, vector<T, 3>
      :
      dot(nor,pa)*dot(nor,pa)/dot2(nor) 
 	);
+}
+
+// Plane - exact
+// Idk why this is called a plane when it is more of a half-space. The other side of the plane is always inside, making the volume extend out to infinity on that side.
+[Differentiable]
+public T sdPlane<T>( vector<T, 3> p, vector<T, 3> n, T h ) where T : __BuiltinFloatingPointType {
+  return dot(p, n) + h; // Normal vector n must be normalized
 }
 
 [Differentiable]

@@ -19,7 +19,8 @@ enum SdfInstructionKind {
 	AddOp, SubOp, InterOp, XorOp, SmoothAddOp, SmoothSubOp, SmoothInterOp, 
 	// Shapes
 	Sphere, Box, RoundBox, BoxFrame, Cone, CappedCone, HexPrism, TriPrism, Capsule,
-	CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad
+	CappedCylinder, RoundedCylinder, CutSphere, Octahedron, Pyramid, Triangle, Quad,
+	Plane
 }
 
 struct Material {
@@ -309,6 +310,13 @@ float evalQuad(SdfInstruction insn, float3 rayP) {
 	d = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 12);
 	return udQuad(rayP - p, a, b, c, d);
 }
+[ForceInline]
+float evalPlane(SdfInstruction insn, float3 rayP) {
+	float3 p; float3 n; float h;
+	p = READ_FLOAT3(sdfProgData[0].args, insn.argsI()); n = READ_FLOAT3(sdfProgData[0].args, insn.argsI() + 3);
+	h = READ_FLOAT(sdfProgData[0].args, insn.argsI() + 6);
+	return sdPlane(rayP - p, n, h);
+}
 
 // TODO: Add passing the correct material through all the evaluations
 struct SdfProgramScene : IFloatSdfScene {
@@ -344,6 +352,7 @@ struct SdfProgramScene : IFloatSdfScene {
 				case SdfInstructionKind.Pyramid: res = evalPyramid(insn, p); break;
 				case SdfInstructionKind.Triangle: res = evalTriangle(insn, p); break;
 				case SdfInstructionKind.Quad: res = evalQuad(insn, p); break;
+				case SdfInstructionKind.Plane: res = evalPlane(insn, p); break;
 			}
 
 			WRITE_FLOAT(runtimeData.outputs, insn.outputI(), res);

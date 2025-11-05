@@ -282,7 +282,9 @@ proc initSdfRenderer(win: Window, useSpirV: bool) =
   let box1 = sdfRenderer.sceneBuilder.addBox(vec3f(0, -2, 6), vec3f(2.5, 1, 2.5)).outputI
   let roofWindow = sdfRenderer.sceneBuilder.addBox(vec3f(0, 5, 6), vec3f(3, 2.5, 3)).outputI
   room = sdfRenderer.sceneBuilder.combine(room, box1).outputI
-  discard sdfRenderer.sceneBuilder.cut(roofWindow, room)
+  room = sdfRenderer.sceneBuilder.cut(roofWindow, room).outputI
+  let ground = sdfRenderer.sceneBuilder.addPlane(vec3f(0, -5, 0), vec3f(0, 1, 0), 0).outputI
+  discard sdfRenderer.sceneBuilder.combine(room, ground)
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
   let imagePlaneTriangle = @[
