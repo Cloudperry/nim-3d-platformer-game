@@ -211,6 +211,8 @@ makeGlObjects(RaiseError, std140Alignment):
     mode: RenderMode
 
 type
+  SdfRendererScene = enum
+    DynamicObjectsTestRoom, SoftShadowsTest
   ScreenSpaceVertex = object
     pos, uv: Vec2f
   # TODO: Move camera data in this object (possibly using the existing camera class, but without rasterization specific stuff).
@@ -227,30 +229,14 @@ type
     imagePlaneVao: VertexArrayRef
     dynamicCutter: tuple[outputI: uint8, instI: int]
     movingSphere: tuple[outputI: uint8, instI: int]
+    scene: SdfRendererScene
 
 var sdfRenderer = SdfRendererState()
 
 proc updateCameraAspect(width, height: int) =
   glViewport(0, 0, width, height)
 
-proc initSdfRenderer(win: Window, useSpirV: bool) =
-  let (width, height) = glfw.framebufferSize(win)
-  updateCameraAspect(width, height)
-
-  if not useSpirV:
-    sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  else:
-    sdfRenderer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-  sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
-    sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = SdfProgramData().some
-  )
-  sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](
-    sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = emptySdfProgram().some
-  )
-  sdfRenderer.pointLights = initShaderDataBuffer[seq[PointLight]](sdfRenderer.shader, 2, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
-
+proc dynamicObjectsScene() =
   sdfRenderer.sceneUbo.mainLightDirection = vec3f(-5, -5, -3).normalize()
   sdfRenderer.sceneUbo.mainLightColor = vec3f(0.6, 0.3, 0.2) / 12
   sdfRenderer.sceneUbo.ambientLightColor = vec3f(0.01)
@@ -287,6 +273,57 @@ proc initSdfRenderer(win: Window, useSpirV: bool) =
   discard sdfRenderer.sceneBuilder.combine(room, ground)
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
+proc softShadowsScene() =
+  sdfRenderer.sceneUbo.mainLightDirection = vec3f(1, -3, -3).normalize()
+  sdfRenderer.sceneUbo.mainLightColor = vec3f(0.9, 0.6, 0.3)
+  sdfRenderer.sceneUbo.ambientLightColor = vec3f(0.05)
+  sdfRenderer.sceneUbo.specularExponent = 16
+  #[sdfRenderer.pointLights.add PointLight(
+    position: vec3f(3, 1.5, 3), color: vec3f(0.8, 0.4, 0) / 3,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  sdfRenderer.pointLights.add PointLight(
+    position: vec3f(-3, 1.5, 3), color: vec3f(0, 0.5, 0.7) / 3,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  sdfRenderer.pointLights.add PointLight(
+    position: vec3f(0, 1.5, -5), color: vec3f(0.4, 0.4, 0.4) / 8,
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  sdfRenderer.pointLights.upload()]#
+
+  sdfRenderer.sceneBuilder = initSceneBuilder(sdfRenderer.sceneProgramData.data, sdfRenderer.sceneProgram.data)
+  let ground = sdfRenderer.sceneBuilder.addPlane(vec3f(0, -5, 0), vec3f(0, 1, 0), 0).outputI
+  let box1 = sdfRenderer.sceneBuilder.addBox(vec3f(-5, -1, 0), vec3f(2, 4, 2)).outputI
+  let gb1 = sdfRenderer.sceneBuilder.combine(ground, box1).outputI 
+  let box2 = sdfRenderer.sceneBuilder.addBox(vec3f(0, -2, -5), vec3f(1, 3, 1)).outputI
+  let gb2 = sdfRenderer.sceneBuilder.combine(gb1, box2).outputI 
+  let box3 = sdfRenderer.sceneBuilder.addBox(vec3f(4, -3, -10), vec3f(1, 2, 1)).outputI
+  discard sdfRenderer.sceneBuilder.combine(gb2, box3).outputI 
+  sdfRenderer.sceneProgramData.uploadField(materialData)
+
+proc initSdfRenderer(win: Window, useSpirV: bool) =
+  let (width, height) = glfw.framebufferSize(win)
+  updateCameraAspect(width, height)
+
+  if not useSpirV:
+    sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  else:
+    sdfRenderer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
+    sdfRenderer.shader, 0, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = SdfProgramData().some
+  )
+  sdfRenderer.sceneProgram = initShaderDataBuffer[seq[SdfInstruction]](
+    sdfRenderer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW, data = emptySdfProgram().some
+  )
+  sdfRenderer.pointLights = initShaderDataBuffer[seq[PointLight]](sdfRenderer.shader, 2, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
+
+  case sdfRenderer.scene
+  of DynamicObjectsTestRoom: dynamicObjectsScene()
+  of SoftShadowsTest: softShadowsScene()
+
   let imagePlaneTriangle = @[
     ScreenSpaceVertex(pos: vec2f(-1.0, -1.0), uv: vec2f(0.0, 0.0)), # Bottom left
     ScreenSpaceVertex(pos: vec2f(3.0, -1.0), uv: vec2f(2.0, 0.0)), # Bottom right
@@ -307,12 +344,15 @@ proc uninitSdfRenderer() =
   sdfRenderer.shader.cleanup()
 
 proc updateSdfRenderer(win: Window, frame: FrameState) =
-  let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
-  let newX: float32 = sin(glfw.getTime().float32 * 0.7) * 10
-  sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
-  let sphereInst = sdfRenderer.sceneProgram.data[sdfRenderer.movingSphere.instI]
-  let newY: float32 = sin(glfw.getTime().float32 * 0.4) * 5
-  sdfRenderer.sceneProgramData.data.args[sphereInst.argsI.uint32 + 1] = cast[uint32](newY)
+  case sdfRenderer.scene
+  of DynamicObjectsTestRoom:
+    let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
+    let newX: float32 = sin(glfw.getTime().float32 * 0.7) * 10
+    sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
+    let sphereInst = sdfRenderer.sceneProgram.data[sdfRenderer.movingSphere.instI]
+    let newY: float32 = sin(glfw.getTime().float32 * 0.4) * 5
+    sdfRenderer.sceneProgramData.data.args[sphereInst.argsI.uint32 + 1] = cast[uint32](newY)
+  else: discard
 
 proc setUniforms(c: RasterizedCamera) =
   if c.rasterizerOn:
@@ -477,14 +517,16 @@ proc updateDrawLoop(win: Window, frame: var FrameState; updateProc, drawProc: pr
 
     glfw.pollEvents()
 
-proc main(slangPath: string = "", mode: RendererMode = Rasterizer, useSpirV = false) =
+proc main(slangPath = "", mode = Rasterizer, scene = DynamicObjectsTestRoom, useSpirV = false) =
   compileShaders(mode, useSpirV, slangPath)
 
   var (win, cfg) = initGlfwAndGlad(mode)
   win.initSharedState(mode)
   case mode
   of Rasterizer: win.initRasterizer(useSpirV)
-  of SdfRenderer: win.initSdfRenderer(useSpirV)
+  of SdfRenderer:
+    sdfRenderer.scene = scene
+    win.initSdfRenderer(useSpirV)
 
   var frame = FrameState()
   case mode
