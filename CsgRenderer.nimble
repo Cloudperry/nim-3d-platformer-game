@@ -4,7 +4,7 @@ author = "Roni Hokkanen"
 description = "A computer graphics project in Nim and OpenGL"
 srcDir = "src"
 binDir = "bin"
-namedBin["Renderer"] = "nim-opengl-renderer"
+namedBin["SdfRenderer"] = "sdf-renderer"
 backend = "c"
 license = "MIT"
 

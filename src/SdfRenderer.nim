@@ -5,198 +5,6 @@ from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import ./glad/gl
 import GlUtils, Slangc, Scene, Logger, Shapes, SdfScene
 
-type
-  RendererMode = enum
-    Rasterizer, SdfRenderer
-  EngineState = object
-    mode: RendererMode
-    # Window/input
-    fullscreen: bool
-    monitor: Monitor
-    prevWinProps: tuple[x, y, w, h, refreshRate: int]
-    cameraOpts: FpCameraOptions
-    prevCursorX, prevCursorY: float
-    # Graphics
-    vertexShaderText, fragmentShaderText: string
-    camera: RasterizedCamera
-  FrameState = object
-    cursorDeltaX, cursorDeltaY, deltaTime: float
-
-const
-  shapeColor = vec3f(1.0)
-  shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
-
-var
-  state = EngineState()
-  logger = Logger()
-
-proc initSharedState(win: Window, mode: RendererMode) =
-  state.mode = mode
-  let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
-  state.fullscreen = win.size == monitorSize
-  (state.prevCursorX, state.prevCursorY) = win.cursorPos
-
-  # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
-  state.cameraOpts = FpCameraOptions()
-  state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, mode == Rasterizer)
-  state.camera.pos = vec3f(0, 0, 0)
-  state.camera.updateTransform()
-
-  logger = stdout.initLogger()
-
-proc commonUpdate(win: Window, frame: var FrameState) =
-  let cursorPos = win.cursorPos
-  (frame.cursorDeltaX, frame.cursorDeltaY) = (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
-  (state.prevCursorX, state.prevCursorY) = cursorPos
-
-  # Keyboard input
-  var moveDirection = vec3f(0)
-  if win.isKeyDown(keyComma):
-    moveDirection.z -= 1
-  elif win.isKeyDown(keyO):
-    moveDirection.z += 1
-  if win.isKeyDown(keyE):
-    moveDirection.x += 1
-  elif win.isKeyDown(keyA):
-    moveDirection.x -= 1
-  if win.isKeyDown(keySpace):
-    moveDirection.y += 1
-  elif win.isKeyDown(keyBackslash):
-    moveDirection.y -= 1
-
-  state.camera.doFirstPersonCameraMovement(
-    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-  )
-
-# ======================================== Rasterizer ========================================
-makeGlObjects(RaiseError, std140Alignment):
-  type GpuSceneUniforms = object
-    cameraPos: Vec3f
-    # Just one model to world transform for now, separate transforms for each model will be needed later
-    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
-    mainLightDirection: Vec3f
-    mainLightColor: Vec3f
-    ambientLightColor: Vec3f
-
-type 
-  RasterizerState = object
-    # Renderer state and wrapper objects
-    shader: ShaderRef
-    uniforms: ShaderDataBufferRef[GpuSceneUniforms]
-    vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
-    elementBuffers: seq[ElementBufferRef]
-    vertexArrays: seq[VertexArrayRef]
-    scene: Scene[ColoredVertex]
-
-var rasterizer = RasterizerState()
-
-proc updateCameraAspect(win: Window; width, height: int) =
-  var ratio = width / height
-  case state.camera.kind
-  of Perspective: state.camera.setPerspective(
-    state.camera.verticalFov, ratio, state.camera.nearClip, state.camera.farClip
-  )
-  of Orthographic: state.camera.setOrthographic(
-    state.camera.frustumLength, ratio, state.camera.nearClip, state.camera.farClip
-  )
-
-  glViewport(0, 0, width, height)
-
-proc makeGlBuffers[T](s: Scene[T]) =
-  rasterizer.vertexBuffers.setLen s.models.len
-  rasterizer.elementBuffers.setLen s.models.len
-  rasterizer.vertexArrays.setLen s.models.len
-
-  for i, model in s.models:
-    rasterizer.vertexBuffers[i] = initVertexBuffer (model.vertices, GL_STATIC_DRAW).some
-    rasterizer.elementBuffers[i] = initElementBuffer (model.indices, GL_STATIC_DRAW).some
-    rasterizer.vertexArrays[i] = initVertexArray()
-    rasterizer.vertexArrays[i].use()
-    rasterizer.vertexBuffers[i].use()
-    rasterizer.vertexArrays[i].attachElementBuffer(rasterizer.elementBuffers[i])
-
-proc setSceneUniforms[T](s: Scene[T]) =
-  rasterizer.uniforms.mainLightDirection = s.dirLight.direction
-  rasterizer.uniforms.mainLightColor = s.dirLight.color
-  rasterizer.uniforms.ambientLightColor = s.ambientLightColor
-
-proc initRasterizer(win: Window, useSpirV: bool) =
-  let
-    cube = makeCube(shapeColor)
-    pyramid = makePyramid(shapeColor)
-    sphere = makeSphere(0.5, 16, 16, shapeColor)
-    cubeModel = initModel(
-      cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
-    )
-    pyramidModel = initModel(
-      pyramid.vertices, pyramid.indices, transform = Transform(pos: vec3f(-2, 0, -2), scale: vec3f(1, 1, 1))
-    )
-    sphereModel = initModel(
-      sphere.vertices, sphere.indices, transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1))
-    )
-
-  let (width, height) = glfw.framebufferSize(win)
-  win.updateCameraAspect(width, height)
-
-  rasterizer.scene = initScene(
-    state.camera,
-    @[cubeModel, pyramidModel, sphereModel],
-    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
-    vec3f(0.1).some
-  )
-
-  # Compile and link shader and check errors
-  if not useSpirV:
-    rasterizer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  else:
-    rasterizer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
-  rasterizer.uniforms = initShaderDataBuffer[GpuSceneUniforms](rasterizer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
-
-  # Set up OpenGL buffers for passing vertex data to shaders
-  rasterizer.scene.makeGlBuffers()
-  rasterizer.scene.setSceneUniforms()
-
-  # Enable backface culling
-  glEnable(GL_CULL_FACE)
-  glCullFace(GL_BACK)
-  glFrontFace(GL_CCW)
-
-  # Enable depth buffer to for correct occlusion when rendering multiple objects 
-  glEnable(GL_DEPTH_TEST)
-  glDepthFunc(GL_LESS)
-
-proc uninitRasterizer() =
-  for i in 0 .. rasterizer.vertexArrays.high:
-    rasterizer.vertexBuffers[i].cleanup()
-    rasterizer.elementBuffers[i].cleanup()
-    rasterizer.vertexArrays[i].cleanup()
-  rasterizer.uniforms.cleanup()
-  rasterizer.shader.cleanup()
-
-proc updateRasterizer(win: Window, frame: FrameState) =
-  discard
-
-proc setUniforms(m: Model) =
-  rasterizer.uniforms.modelToWorldMat = m.transform.getTransformMat()
-
-proc setUniforms(c: RasterizedCamera)
-proc drawRasterizer(win: Window) =
-  glClearColor(0.2, 0.3, 0.3, 1.0)
-  glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
-
-  rasterizer.shader.use()
-  rasterizer.uniforms.use(rasterizer.shader)
-  state.camera.setUniforms()
-
-  for i in 0 .. rasterizer.vertexArrays.high:
-    rasterizer.vertexArrays[i].use()
-    rasterizer.scene.models[i].setUniforms()
-    glDrawElements(GL_TRIANGLES, rasterizer.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
-
-proc sizeCbRasterizer(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
-
-# ======================================== SDF renderer (sphere tracer) ========================================
 type RenderMode {.size: sizeof(uint32).} = enum
   BasicLitScene, ShadowedLitScene, UnlitScene, DebugNormals, DebugStepCounts
 makeGlObjects(RaiseError, std140Alignment):
@@ -211,6 +19,18 @@ makeGlObjects(RaiseError, std140Alignment):
     mode: RenderMode
 
 type
+  EngineState = object
+    # Window/input
+    fullscreen: bool
+    monitor: Monitor
+    prevWinProps: tuple[x, y, w, h, refreshRate: int]
+    cameraOpts: FpCameraOptions
+    prevCursorX, prevCursorY: float
+    # Graphics
+    vertexShaderText, fragmentShaderText: string
+    camera: RasterizedCamera
+  FrameState = object
+    cursorDeltaX, cursorDeltaY, deltaTime: float
   SdfRendererScene = enum
     DynamicObjectsTestRoom, SoftShadowsTest
   ScreenSpaceVertex = object
@@ -231,7 +51,14 @@ type
     movingSphere: tuple[outputI: uint8, instI: int]
     scene: SdfRendererScene
 
-var sdfRenderer = SdfRendererState()
+const
+  shapeColor = vec3f(1.0)
+  shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
+
+var
+  state = EngineState()
+  logger = Logger()
+  sdfRenderer = SdfRendererState()
 
 proc updateCameraAspect(width, height: int) =
   glViewport(0, 0, width, height)
@@ -302,7 +129,18 @@ proc softShadowsScene() =
   discard sdfRenderer.sceneBuilder.combine(gb2, box3).outputI 
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
-proc initSdfRenderer(win: Window, useSpirV: bool) =
+proc init(win: Window, useSpirV: bool) =
+  let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
+  state.fullscreen = win.size == monitorSize
+  (state.prevCursorX, state.prevCursorY) = win.cursorPos
+
+  # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
+  state.cameraOpts = FpCameraOptions()
+  state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, false)
+  state.camera.pos = vec3f(0, 0, 0)
+  state.camera.updateTransform()
+
+  logger = stdout.initLogger()
   let (width, height) = glfw.framebufferSize(win)
   updateCameraAspect(width, height)
 
@@ -337,13 +175,37 @@ proc initSdfRenderer(win: Window, useSpirV: bool) =
 
   glEnable(GL_FRAMEBUFFER_SRGB)
 
-proc uninitSdfRenderer() =
+proc uninit() =
   sdfRenderer.imagePlaneVbo.cleanup()
   sdfRenderer.imagePlaneVao.cleanup()
   sdfRenderer.sceneUbo.cleanup()
   sdfRenderer.shader.cleanup()
 
-proc updateSdfRenderer(win: Window, frame: FrameState) =
+proc update(win: Window, frame: var FrameState) =
+  let cursorPos = win.cursorPos
+  (frame.cursorDeltaX, frame.cursorDeltaY) = (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
+  (state.prevCursorX, state.prevCursorY) = cursorPos
+
+  # Keyboard input
+  var moveDirection = vec3f(0)
+  if win.isKeyDown(keyComma):
+    moveDirection.z -= 1
+  elif win.isKeyDown(keyO):
+    moveDirection.z += 1
+  if win.isKeyDown(keyE):
+    moveDirection.x += 1
+  elif win.isKeyDown(keyA):
+    moveDirection.x -= 1
+  if win.isKeyDown(keySpace):
+    moveDirection.y += 1
+  elif win.isKeyDown(keyBackslash):
+    moveDirection.y -= 1
+
+  state.camera.doFirstPersonCameraMovement(
+    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+  )
+
+  # Update SDF program if dynamic scene
   case sdfRenderer.scene
   of DynamicObjectsTestRoom:
     let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
@@ -355,16 +217,12 @@ proc updateSdfRenderer(win: Window, frame: FrameState) =
   else: discard
 
 proc setUniforms(c: RasterizedCamera) =
-  if c.rasterizerOn:
-    rasterizer.uniforms.worldToViewMat = c.viewMat
-    rasterizer.uniforms.viewToClipMat = c.projectionMat
-  else:
-    sdfRenderer.sceneUbo.camPos = c.pos
-    sdfRenderer.sceneUbo.camForward = c.forward
-    sdfRenderer.sceneUbo.camRight = c.right
-    sdfRenderer.sceneUbo.camUp = c.up
+  sdfRenderer.sceneUbo.camPos = c.pos
+  sdfRenderer.sceneUbo.camForward = c.forward
+  sdfRenderer.sceneUbo.camRight = c.right
+  sdfRenderer.sceneUbo.camUp = c.up
 
-proc drawSdfRenderer(win: Window) =
+proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT)
   
@@ -383,7 +241,7 @@ proc drawSdfRenderer(win: Window) =
   sdfRenderer.sceneProgram.upload()
   glDrawArrays(GL_TRIANGLES, 0, 6)
 
-proc sizeCbSdfRenderer(win: Window, size: tuple[w, h: int32]) = 
+proc sizeCb(win: Window, size: tuple[w, h: int32]) = 
   updateCameraAspect(size.w, size.h)
 
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
@@ -409,22 +267,18 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
   # TODO: Camera is not getting updated using the window size callback on fullscreen. This is a hack to update it.
   # Find out why size callbacks don't fire on fullscreen.
   let (width, height) = glfw.framebufferSize(win)
-  case state.mode
-  of Rasterizer:
-    win.updateCameraAspect(width, height)
-  of SdfRenderer:
-    # SDF debug keybinds
-    if key == keyF1 and action == kaDown:
-      sdfRenderer.debugOptUbo.mode = BasicLitScene
-    elif key == keyF2 and action == kaDown:
-      sdfRenderer.debugOptUbo.mode = ShadowedLitScene
-    elif key == keyF3 and action == kaDown:
-      sdfRenderer.debugOptUbo.mode = UnlitScene
-    elif key == keyF5 and action == kaDown:
-      sdfRenderer.debugOptUbo.mode = DebugNormals
-    elif key == keyF6 and action == kaDown:
-      sdfRenderer.debugOptUbo.mode = DebugStepCounts
-    updateCameraAspect(width, height)
+  # SDF debug keybinds
+  if key == keyF1 and action == kaDown:
+    sdfRenderer.debugOptUbo.mode = BasicLitScene
+  elif key == keyF2 and action == kaDown:
+    sdfRenderer.debugOptUbo.mode = ShadowedLitScene
+  elif key == keyF3 and action == kaDown:
+    sdfRenderer.debugOptUbo.mode = UnlitScene
+  elif key == keyF5 and action == kaDown:
+    sdfRenderer.debugOptUbo.mode = DebugNormals
+  elif key == keyF6 and action == kaDown:
+    sdfRenderer.debugOptUbo.mode = DebugStepCounts
+  updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   let newMonitor = win.monitor
@@ -432,11 +286,7 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   if newMonitor.handle != nil: # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(mode: RendererMode, useSpirV: bool, slangPath = "") =
-  let shaderFile = case mode
-  of Rasterizer: "RasterizedRenderer.slang"
-  of SdfRenderer: "SdfRenderer.slang"
-  
+proc compileShaders(useSpirV: bool, slangPath = "") =
   # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
   # in Slangc better by adding init proc.
   var opts = SlangcOptions(entryPoint: "vertexMain")
@@ -445,7 +295,7 @@ proc compileShaders(mode: RendererMode, useSpirV: bool, slangPath = "") =
   else:
     opts.target = SpirV
   opts.stage = Vertex
-  opts.inFile = shadersDir / shaderFile
+  opts.inFile = shadersDir / "SdfRenderer.slang"
   if slangPath.len > 0: opts.slangPath = slangPath
   state.vertexShaderText = compileShaderOrRaise(opts)
 
@@ -453,19 +303,17 @@ proc compileShaders(mode: RendererMode, useSpirV: bool, slangPath = "") =
   opts.entryPoint = "fragmentMain"
   state.fragmentShaderText = compileShaderOrRaise(opts)
 
-proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowConfig] =
+proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
   cfg.size = (w: 640, h: 480)
-  cfg.title = "Simple example"
+  cfg.title = "OpenGL SDF raymarching"
   cfg.resizable = true
   cfg.version = glv46
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
   cfg.debugContext = not (defined(release) or defined(danger))
-  if mode == Rasterizer:
-    cfg.bits.depth = 24.some
 
   # GLFW init that has to be done after window creation
   var win = newWindow(cfg)
@@ -481,9 +329,7 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
     setupGlDebugLogging()
 
   win.keyCb = keyCb
-  case mode
-  of Rasterizer: win.windowSizeCb = sizeCbRasterizer
-  of SdfRenderer: win.windowSizeCb = sizeCbSdfRenderer
+  win.windowSizeCb = sizeCb
   win.windowPositionCb = positionCb
   win.aspectRatio = (3, 2)
   win.cursorMode = cmDisabled
@@ -497,55 +343,33 @@ proc initGlfwAndGlad(mode: RendererMode): tuple[win: Window, cfg: OpenglWindowCo
   glfw.swapInterval(1)
   return (win, cfg)
 
-# This is done to avoid branching within the main loop, while still allowing runtime selection between rasterizer and SDF renderer
-proc updateDrawLoop(win: Window, frame: var FrameState; updateProc, drawProc: proc) =
+proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false) =
+  compileShaders(useSpirV, slangPath)
+
+  var (win, cfg) = initGlfwAndGlad()
+  win.init(useSpirV)
+
+  var frame = FrameState()
   var prevFrameStart = getMonoTime()
+
   while not win.shouldClose:
     frame = FrameState()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
     prevFrameStart = currFrameStart
-    win.commonUpdate(frame)
     
-    updateProc()
+    win.update(frame)
     let updateEnd = getMonoTime()
-    drawProc()
+    win.draw()
     glfw.swapBuffers(win)
+
     let currFrameEnd = getMonoTime()
     logger.logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
 
     glfw.pollEvents()
 
-proc main(slangPath = "", mode = Rasterizer, scene = DynamicObjectsTestRoom, useSpirV = false) =
-  compileShaders(mode, useSpirV, slangPath)
-
-  var (win, cfg) = initGlfwAndGlad(mode)
-  win.initSharedState(mode)
-  case mode
-  of Rasterizer: win.initRasterizer(useSpirV)
-  of SdfRenderer:
-    sdfRenderer.scene = scene
-    win.initSdfRenderer(useSpirV)
-
-  var frame = FrameState()
-  case mode
-  of Rasterizer: 
-    updateDrawLoop(
-      win, frame,
-      () => win.updateRasterizer(frame),
-      () => win.drawRasterizer()
-    )
-  of SdfRenderer:
-    updateDrawLoop(
-      win, frame,
-      () => win.updateSdfRenderer(frame),
-      () => win.drawSdfRenderer()
-    )
-
-  case mode
-  of Rasterizer: uninitRasterizer()
-  of SdfRenderer: uninitSdfRenderer()
+  uninit()
   glfw.terminate()
 
 when isMainModule:
