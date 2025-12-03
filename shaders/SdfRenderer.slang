@@ -81,7 +81,8 @@ struct SdfProgramData {
 
 // For complex CSG trees, this can be increased to at least 20 or 30 without destroying performance.
 struct SdfProgramRuntimeData {
-  uint outputs[10];
+  float outputs[10];
+  uint matIOutputs[10];
 }
 
 [ForceInline]
@@ -396,13 +397,12 @@ float evalPlane(SdfInstruction insn, float3 rayP) {
 }
 
 // TODO: Add passing the correct material through all the evaluations
-struct SdfProgramScene : IFloatSdfScene {
-
+struct SdfProgramSceneNoMaterials : IFloatSdfScene {
   static float sdf(float3 p) {
     uint insnCount, stride;
     sdfProg.GetDimensions(insnCount, stride);
     SdfProgramRuntimeData runtimeData = { 0 };
-    float res = float.maxValue;
+    float res;
     for (uint i = 0; i < insnCount; i++) {
       SdfInstruction insn = sdfProg[i];
 
@@ -481,12 +481,105 @@ struct SdfProgramScene : IFloatSdfScene {
         break;
       }
 
-      WRITE_FLOAT(runtimeData.outputs, insn.outputI(), res);
+      runtimeData.outputs[insn.outputI()] = res;
     }
 
     return res;
   }
 }
+
+/*
+struct SdfProgramScene : IFloatSdfScene {
+  static float sdf(float3 p) {
+    uint insnCount, stride;
+    sdfProg.GetDimensions(insnCount, stride);
+    SdfProgramRuntimeData runtimeData = { 0 };
+    MatIAndDist res;
+    for (uint i = 0; i < insnCount; i++) {
+      SdfInstruction insn = sdfProg[i];
+
+      switch (insn.kind()) {
+      case SdfInstructionKind.AddOp:
+        res = evalAddOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.SubOp:
+        res = evalSubOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.InterOp:
+        res = evalInterOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.XorOp:
+        res = evalXorOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.SmoothAddOp:
+        res = evalSmoothAddOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.SmoothSubOp:
+        res = evalSmoothSubOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.SmoothInterOp:
+        res = evalSmoothInterOp(insn, runtimeData);
+        break;
+      case SdfInstructionKind.Sphere:
+        res = evalSphere(insn, p);
+        break;
+      case SdfInstructionKind.Box:
+        res = evalBox(insn, p);
+        break;
+      case SdfInstructionKind.RoundBox:
+        res = evalRoundBox(insn, p);
+        break;
+      case SdfInstructionKind.BoxFrame:
+        res = evalBoxFrame(insn, p);
+        break;
+      case SdfInstructionKind.Cone:
+        res = evalCone(insn, p);
+        break;
+      case SdfInstructionKind.CappedCone:
+        res = evalCappedCone(insn, p);
+        break;
+      case SdfInstructionKind.HexPrism:
+        res = evalHexPrism(insn, p);
+        break;
+      case SdfInstructionKind.TriPrism:
+        res = evalTriPrism(insn, p);
+        break;
+      case SdfInstructionKind.Capsule:
+        res = evalCapsule(insn, p);
+        break;
+      case SdfInstructionKind.CappedCylinder:
+        res = evalCappedCylinder(insn, p);
+        break;
+      case SdfInstructionKind.RoundedCylinder:
+        res = evalRoundedCylinder(insn, p);
+        break;
+      case SdfInstructionKind.CutSphere:
+        res = evalCutSphere(insn, p);
+        break;
+      case SdfInstructionKind.Octahedron:
+        res = evalOctahedron(insn, p);
+        break;
+      case SdfInstructionKind.Pyramid:
+        res = evalPyramid(insn, p);
+        break;
+      case SdfInstructionKind.Triangle:
+        res = evalTriangle(insn, p);
+        break;
+      case SdfInstructionKind.Quad:
+        res = evalQuad(insn, p);
+        break;
+      case SdfInstructionKind.Plane:
+        res = evalPlane(insn, p);
+        break;
+      }
+
+      runtimeData.outputs[insn.outputI()] = res.dist;
+      runtimeData.matIOutputs[insn.outputI()] = res.matI;
+    }
+
+    return res;
+  }
+}*/
 
 // Fancy numeric normal function from https://iquilezles.org/articles/normalsSDF/
 float3 calcNormal<T>(T sceneFn, float3 p, float eps)
@@ -706,7 +799,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-  renderScene(SdfProgramScene(), output, rayDirection);
+  renderScene(SdfProgramSceneNoMaterials(), output, rayDirection);
   // NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
   // cause visible interference patterns between the two types of dithering.
   output.color += gradientNoiseWithStrength(input.fragCoord.xy, 1.0);

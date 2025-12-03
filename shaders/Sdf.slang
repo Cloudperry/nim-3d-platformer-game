@@ -276,3 +276,56 @@ public float smin(float a, float b, float k) {
 // TODO: Add rotation/translation and scaling (need function pointers or a way to pass functions as args,
 // maybe https://code4k.blogspot.com/2011/11/advanced-hlsl-using-closures-and.html). Mirroring, repetition,
 // displacement, twisting and bending also need functions as args.
+
+public struct MatIAndDist {
+  public uint matI;
+  public float dist;
+  __init() {
+    matI = 0;
+    dist = float.maxValue;
+  }
+}
+
+MatIAndDist neg(MatIAndDist md1) {
+  var negation = md1;
+  negation.dist = -negation.dist;
+  return negation;
+}
+
+public MatIAndDist min(MatIAndDist md1, MatIAndDist md2) {
+  if (md1.dist <= md2.dist) {
+    return md1;
+  } else {
+    return md2;
+  }
+}
+
+public MatIAndDist max(MatIAndDist md1, MatIAndDist md2) {
+  if (md1.dist >= md2.dist) {
+    return md1;
+  } else {
+    return md2;
+  }
+}
+
+public MatIAndDist opUnion(MatIAndDist md1, MatIAndDist md2) { return min(md1, md2); }
+public MatIAndDist opSubtraction(MatIAndDist md1, MatIAndDist md2) { return max(neg(md1), md2); }
+public MatIAndDist opIntersection(MatIAndDist md1, MatIAndDist md2) { return max(md1, md2); }
+public MatIAndDist opXor(MatIAndDist md1, MatIAndDist md2) { return max(min(md1, md2), neg(max(md1, md2))); }
+
+// TODO: Replace this placeholder smooth union with one that actually blends the material with the same smoothing curve.
+// Or at the very least use material from opUnion.
+public MatIAndDist opSmoothUnion(MatIAndDist md1, MatIAndDist md2, float k) {
+  k *= 4.0;
+  float h = max(k - abs(md1.dist - md2.dist), 0.0);
+  float dist = min(md1.dist, md2.dist) - h * h * 0.25 / k;
+  var res = md1;
+  res.dist = dist;
+  return res;
+}
+public MatIAndDist opSmoothSubtraction(MatIAndDist md1, MatIAndDist md2, float k) {
+  return neg(opSmoothUnion(md1, neg(md2), k));
+}
+public MatIAndDist opSmoothIntersection(MatIAndDist md1, MatIAndDist md2, float k) {
+  return neg(opSmoothUnion(neg(md1), neg(md2), k));
+}

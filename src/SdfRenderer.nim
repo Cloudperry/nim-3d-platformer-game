@@ -344,6 +344,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   return (win, cfg)
 
 proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false) =
+  sdfRenderer.scene = scene
   compileShaders(useSpirV, slangPath)
 
   var (win, cfg) = initGlfwAndGlad()
