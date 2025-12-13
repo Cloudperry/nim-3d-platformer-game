@@ -396,7 +396,7 @@ float evalPlane(SdfInstruction insn, float3 rayP) {
   return sdPlane(rayP - p, n, h);
 }
 
-// TODO: Add passing the correct material through all the evaluations
+// NOTE: Making an interpreter specialized for right-leaning trees might have better performance?
 struct SdfProgramSceneNoMaterials : IFloatSdfScene {
   static float sdf(float3 p) {
     uint insnCount, stride;
@@ -488,6 +488,7 @@ struct SdfProgramSceneNoMaterials : IFloatSdfScene {
   }
 }
 
+// TODO: Add passing the correct material through all the evaluations
 /*
 struct SdfProgramScene : IFloatSdfScene {
   static float sdf(float3 p) {
@@ -582,8 +583,9 @@ struct SdfProgramScene : IFloatSdfScene {
 }*/
 
 // Fancy numeric normal function from https://iquilezles.org/articles/normalsSDF/
-float3 calcNormal<T>(T sceneFn, float3 p, float eps)
+float3 calcNormal<T>(T sceneFn, float3 p)
   where T : IFloatSdfScene {
+  const float eps = 4e-5;
   const float2 k = float2(1, -1);
   return normalize(k.xyy * sceneFn.sdf(p + k.xyy * eps) + k.yyx * sceneFn.sdf(p + k.yyx * eps) +
                    k.yxy * sceneFn.sdf(p + k.yxy * eps) + k.xxx * sceneFn.sdf(p + k.xxx * eps));
@@ -603,24 +605,20 @@ float3 exactNormal<T>(T sceneFn, in float3 p)
   return normalize(normal);
 }
 
-static const int maxSteps = 128;
+static const int maxSteps = 256;
 Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float closestSurface,
                                 out uint stepCount, float baseHitEps = 1e-6, float farClipDist = 100)
   where T : IFloatSdfScene {
-  const float minHitEps = 1e-8; // This might be too small
+  const float minHitEps = 1e-4;
   const float maxHitEps = 1e-1;
-  const float maxEpsStepCountScaling = 10000;
   // TODO: Dynamic far clip distance based on sceneFn contents?
 
   rayDist = 0;
   for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
     closestSurface = sceneFn.sdf(pos);
-    // Dynamic ray hit epsilon. Scale by dist to keep ray from missing far away hits and
-    // by step budget to prevent missing surfaces at grazing angles.
-    float stepCountScale =
-      1.0 + maxEpsStepCountScaling * pow(stepCount / float(maxSteps), 10); // On the GPU, pow might be heavy?
-    float hitEps = clamp(baseHitEps * rayDist * stepCountScale, minHitEps, maxHitEps);
+    // Change to bigger epsilon on last step as a last attempt to find an intersection
+    float hitEps = stepCount == maxSteps - 1 ? maxHitEps : minHitEps;
 
     if (closestSurface < hitEps) {
       float3 hitPos = pos + rayDir * closestSurface;
@@ -636,19 +634,15 @@ Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out f
 static const uint secondaryRayMaxSteps = 128;
 
 // NOTE: Both of the shadowing methods below have banding issues. This is not a problem of the methods and its instead
-// caused by incorrect SDFs. Especially the subtraction operator creates incorrect SDFs that cause soft shadow banding.
+// caused by approximate distances when using CSG. Especially the subtraction operator creates problematic SDFs
 // Some operations may be possible to fix by making another SDF bytecode interpreter that implements exact operations,
 // but subtraction can't be fixed to be exact. A general fix for the shadows might be possible by modifying the sphere
-// tracer to get more accurate distances for rays that are near misses. Subtraction might also need to be replaced with
-// a version that returns max(d1, d2) when inside both d1 and d2. The normal subtraction always returns -d1 inside both
-// objects, because negating it makes it positive. Another fix would be to always create distance-correct SDFs, but that
-// is very hard to do in general.
+// tracer to get more accurate distances for rays that are near misses. Another fix would be to always create
+// distance-correct SDFs, but that is very hard to do in general.
 
 // Advanced and a bit slow 'close to ground truth' soft shadows (from https://iquilezles.org/articles/rmshadows/). This
 // could probably be a lot faster and more accurate if there was a better way of finding the deepest point inside
 // the shape than taking const sized steps inside. Still has some banding like artifacts, but not easily fixable.
-// Maybe add a light blur pass to mask banding? Another better option might be to jitter the rays just a little bit to
-// break up the banding lines without changing the overall gradient structure.
 float sphereTraceShadow<T>(T sceneFn, float3 startPos, float3 rayDir, float w, float surfaceCamDist, out float rayDist,
                            out float closestSurface, out uint stepCount, float farClipDist = 100)
   where T : IFloatSdfScene {
@@ -676,7 +670,7 @@ float sphereTraceShadow<T>(T sceneFn, float3 startPos, float3 rayDir, float w, f
 float sphereTraceShadowSeb<T>(T sceneFn, float3 startPos, float3 rayDir, float w, out float rayDist,
                               out float closestSurface, out uint stepCount, float farClipDist = 100)
   where T : IFloatSdfScene {
-  const float baseHitEps = 0.01;
+  const float baseHitEps = 0.005;
   float res = 1;
   rayDist = 0;
   float prevClosestSurface = 1e20;
@@ -699,7 +693,6 @@ float sphereTraceShadowSeb<T>(T sceneFn, float3 startPos, float3 rayDir, float w
 void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
   where T : IFloatSdfScene {
   // Lighting is hardcoded for now
-  const float numericNormalMinEps = 8e-6;
 
   float rayDist, lastStepLen;
   uint stepCount;
@@ -710,7 +703,7 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
     float3 safePos =
       hitPos - (lastStepLen * rayDirection); // TODO: Try to fix normal artifacts by moving this far enough that the
                                              // normal epsilon won't take any of the samples inside the shape?
-    float3 worldNormal = calcNormal(sceneFn, safePos, max(numericNormalMinEps, 1e-9 * rayDist));
+    float3 worldNormal = calcNormal(sceneFn, safePos);
 
     switch (debugOpt.mode) {
     case RenderMode.BasicLitScene: {
@@ -741,10 +734,9 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
 
       // Directional light
       float3 dirToLight = -scene.mainLightDirection;
-      float surfaceCamDist = rayDist;
       // Use hitPos + 10 * stepLen * worldNormal here for an interesting/nice looking glitch effect
-      let lightContribution = sphereTraceShadow(sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight,
-                                                shadowSoftness, rayDist, surfaceCamDist, lastStepLen, stepCount);
+      let lightContribution = sphereTraceShadowSeb(sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight,
+                                                   shadowSoftness, rayDist, lastStepLen, stepCount);
       float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, scene.mainLightColor, scene.hitColor);
       float3 specularColor = blinnPhongSpecular(dirToLight, worldNormal, rayDirection, scene.mainLightColor,
                                                 scene.hitColor, scene.specularExponent);
@@ -760,8 +752,8 @@ void renderScene<T>(T sceneFn, inout FragmentOutput output, float3 rayDirection)
           let vecToLight = pointLight.position - hitPos;
           let dirToLight = normalize(vecToLight);
           let lightContribution =
-            sphereTraceShadow(sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight, shadowSoftness,
-                              rayDist, surfaceCamDist, lastStepLen, stepCount, length(vecToLight));
+            sphereTraceShadowSeb(sceneFn, hitPos + secondaryRayNudgeDist * worldNormal, dirToLight, shadowSoftness,
+                                 rayDist, lastStepLen, stepCount, length(vecToLight));
           float3 diffuseColor = lambertDiffuse(dirToLight, worldNormal, lightColor, scene.hitColor);
           float3 specularColor = blinnPhongSpecular(dirToLight, worldNormal, rayDirection, lightColor, scene.hitColor,
                                                     scene.specularExponent);
