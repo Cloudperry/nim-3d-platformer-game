@@ -29,6 +29,8 @@ type
     # Graphics
     vertexShaderText, fragmentShaderText: string
     camera: RasterizedCamera
+    cameraLocked: bool
+    lockTime: float32
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
   SdfRendererScene = enum
@@ -129,7 +131,7 @@ proc softShadowsScene() =
   discard sdfRenderer.sceneBuilder.combine(gb2, box3).outputI 
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
-proc init(win: Window, useSpirV: bool) =
+proc init(win: Window, useSpirV: bool, cameraLockPos: Vec3f; cameraLockYaw, cameraLockPitch, lockTime: float32) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
@@ -137,8 +139,13 @@ proc init(win: Window, useSpirV: bool) =
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   state.cameraOpts = FpCameraOptions()
   state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, false)
-  state.camera.pos = vec3f(0, 0, 0)
-  state.camera.updateTransform()
+  state.camera.pos = cameraLockPos
+  state.camera.yaw = cameraLockYaw
+  state.camera.pitch = cameraLockPitch
+  if cameraLockPos != vec3f(0) or (cameraLockYaw, cameraLockPitch) != (0.0'f32, 0.0'f32):
+    state.cameraLocked = true
+    (state.camera.forward, state.camera.right, state.camera.up) = state.camera.getLocalDirections()
+  state.lockTime = lockTime
 
   logger = stdout.initLogger()
   let (width, height) = glfw.framebufferSize(win)
@@ -186,33 +193,34 @@ proc update(win: Window, frame: var FrameState) =
   (frame.cursorDeltaX, frame.cursorDeltaY) = (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
-  # Keyboard input
-  var moveDirection = vec3f(0)
-  if win.isKeyDown(keyComma):
-    moveDirection.z -= 1
-  elif win.isKeyDown(keyO):
-    moveDirection.z += 1
-  if win.isKeyDown(keyE):
-    moveDirection.x += 1
-  elif win.isKeyDown(keyA):
-    moveDirection.x -= 1
-  if win.isKeyDown(keySpace):
-    moveDirection.y += 1
-  elif win.isKeyDown(keyBackslash):
-    moveDirection.y -= 1
+  if not state.cameraLocked:
+    var moveDirection = vec3f(0)
+    if win.isKeyDown(keyComma):
+      moveDirection.z -= 1
+    elif win.isKeyDown(keyO):
+      moveDirection.z += 1
+    if win.isKeyDown(keyE):
+      moveDirection.x += 1
+    elif win.isKeyDown(keyA):
+      moveDirection.x -= 1
+    if win.isKeyDown(keySpace):
+      moveDirection.y += 1
+    elif win.isKeyDown(keyBackslash):
+      moveDirection.y -= 1
 
-  state.camera.doFirstPersonCameraMovement(
-    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-  )
+    state.camera.doFirstPersonCameraMovement(
+      state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+    )
 
   # Update SDF program if dynamic scene
   case sdfRenderer.scene
   of DynamicObjectsTestRoom:
+    let time = if state.lockTime != 0.0: state.lockTime else: glfw.getTime().float32
     let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
-    let newX: float32 = sin(glfw.getTime().float32 * 0.7) * 10
+    let newX: float32 = sin(time * 0.7) * 10
     sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
     let sphereInst = sdfRenderer.sceneProgram.data[sdfRenderer.movingSphere.instI]
-    let newY: float32 = sin(glfw.getTime().float32 * 0.4) * 5
+    let newY: float32 = sin(time * 0.4) * 5
     sdfRenderer.sceneProgramData.data.args[sphereInst.argsI.uint32 + 1] = cast[uint32](newY)
   else: discard
 
@@ -278,6 +286,11 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
     sdfRenderer.debugOptUbo.mode = DebugNormals
   elif key == keyF6 and action == kaDown:
     sdfRenderer.debugOptUbo.mode = DebugStepCounts
+  elif key == keyP and action == kaDown:
+    let pos = state.camera.pos
+    logger.log fmt"Position (X, Y, Z): ({pos.x}, {pos.y}, {pos.z})"
+    logger.log fmt"Orientation (Yaw, Pitch): ({state.camera.yaw}, {state.camera.pitch})"
+    logger.log fmt"Time: {glfw.getTime().float32}"
   updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
@@ -343,12 +356,15 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   glfw.swapInterval(1)
   return (win, cfg)
 
-proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false) =
+proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false;
+          camLockX = 0'f32, camLockY = 0'f32, camLockZ = 0'f32, camLockYaw = 0'f32,
+          camLockPitch = 0'f32, lockTime = 0'f32) =
   sdfRenderer.scene = scene
   compileShaders(useSpirV, slangPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.init(useSpirV)
+  let cameraPos = vec3f(camLockX, camLockY, camLockZ)
+  win.init(useSpirV, cameraPos, camLockYaw, camLockPitch, lockTime)
 
   var frame = FrameState()
   var prevFrameStart = getMonoTime()
@@ -372,6 +388,13 @@ proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false) =
 
   uninit()
   glfw.terminate()
+
+  let stats = logger.getStatsForRange(0, 999)
+  let (updateAvg, drawAvg) = (inMicroseconds(stats.avgUpdate), inMicroseconds(stats.avgDraw))
+  let fpsAvg = inNanoseconds(initDuration(seconds = 1)) / inNanoseconds(stats.avgFrame)
+  let (minTime, maxTime) = (inMicroseconds(stats.minFrame), inMicroseconds(stats.maxFrame))
+  let bufferDurationSec = inSeconds(stats.bufferDuration)
+  logger.writeTerminalStatusLine some(&"Performance stats for last {bufferDurationSec} seconds:\n  FPS: {fpsAvg:.1f}, 5% Min/max frametimes: {minTime}/{maxTime} μs")
 
 when isMainModule:
   dispatch main

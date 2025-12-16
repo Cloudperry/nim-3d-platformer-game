@@ -1,9 +1,9 @@
-import std/[os, times, options, strformat, algorithm, math, lenientops]
+import std/[os, times, options, strformat, algorithm, math, lenientops, sequtils]
 
 type
   CircularBuffer*[N: Natural, T] = object
     data*: array[N, T]
-    i*: Natural = 0
+    i*: Natural = 0 # TODO: Rename this to something less confusing
 
 proc push*[N, T](b: var CircularBuffer[N, T], v: T) =
   b.data[b.i] = v
@@ -55,6 +55,34 @@ proc log*(l: var Logger, msg: string) =
   l.file.writeLine msg
   l.writeTerminalStatusLine()
 
+type PerfStats* = object
+  avgFrame*, avgUpdate*, avgDraw*: Duration
+  minFrame*, maxFrame*: Duration
+  bufferDuration*: Duration
+
+proc getStatsForRange*(l: Logger; startI, endI: Natural): PerfStats =
+  var count = 0
+  var frameTimes: seq[Duration]
+  var updateSum, drawSum, frameTimeSum = initDuration()
+
+  for time in l.updateTimes.range(startI, endI):
+    if time != initDuration(): updateSum += time
+  for time in l.drawTimes.range(startI, endI):
+    if time != initDuration(): drawSum += time
+  for time in l.frameTimes.range(startI, endI):
+    if time != initDuration():
+      frameTimeSum += time
+      frameTimes.add time
+      count += 1
+  sort(frameTimes)
+
+  result.avgUpdate = updateSum div count
+  result.avgDraw = drawSum div count
+  result.avgFrame = frameTimeSum div count
+  result.minFrame = frameTimes[round((count - 1) * 0.05).int]
+  result.maxFrame = frameTimes[round((count - 1) * 0.95).int]
+  result.bufferDuration = frameTimeSum
+
 proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
   logger.updateTimes.push update
   logger.drawTimes.push draw
@@ -62,26 +90,12 @@ proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
   logger.timeSinceLastLog += frame
 
   if logger.timeSinceLastLog >= logger.perfAvgDuration:
-    var updateSum, drawSum, frameTimeSum = initDuration()
-    for time in logger.updateTimes.range(logger.lastLogI, logger.updateTimes.i): updateSum += time
-    for time in logger.drawTimes.range(logger.lastLogI, logger.drawTimes.i): drawSum += time
-
-    var (frameTimeMin, frameTimeMax) = (Duration.high, Duration.low)
-    var count = 0
-    var frameTimes: seq[Duration]
-    for time in logger.frameTimes.range(logger.lastLogI, logger.frameTimes.i): 
-      frameTimeSum += time
-      frameTimes.add time
-      count += 1
-    sort(frameTimes)
-    frameTimeMin = frameTimes[round((count - 1) * 0.05).int]
-    frameTimeMax = frameTimes[round((count - 1) * 0.95).int]
+    let stats = logger.getStatsForRange(logger.lastLogI, logger.frameTimes.i)
+    let (updateAvg, drawAvg) = (inMicroseconds(stats.avgUpdate), inMicroseconds(stats.avgDraw))
+    let fpsAvg = inNanoseconds(initDuration(seconds = 1)) / inNanoseconds(stats.avgFrame)
+    let (minTime, maxTime) = (inMicroseconds(stats.minFrame), inMicroseconds(stats.maxFrame))
 
     logger.timeSinceLastLog = initDuration()
     logger.lastLogI = logger.frameTimes.i
 
-    let (updateAvg, drawAvg, minTime, maxTime) = (
-      inMicroseconds(updateSum div count), inMicroseconds(drawSum div count), inMicroseconds(frameTimeMin), inMicroseconds(frameTimeMax)
-    )
-    let fpsAvg = initDuration(seconds = 1).inNanoseconds() / inNanoseconds(frameTimeSum div count)
-    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}, 1% Min/max frametimes: {minTime}/{maxTime} μs".some
+    logger.writeTerminalStatusLine fmt"Update: {updateAvg} μs, Draw: {drawAvg} μs, FPS: {fpsAvg:.1f}, 5% Min/max frametimes: {minTime}/{maxTime} μs".some

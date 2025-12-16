@@ -107,7 +107,7 @@ proc getTransformMat*(t: Transform): Mat4f =
   translateMat[3, 2] = t.pos.z
   return translateMat * rotateMat * scaleMat
 
-proc getLocalDirections(c: RasterizedCamera): tuple[forward, right, up: Vec3f] =
+proc getLocalDirections*(c: RasterizedCamera): tuple[forward, right, up: Vec3f] =
   let
     cosPitch = cos(c.pitch)
     sinPitch = sin(c.pitch)
