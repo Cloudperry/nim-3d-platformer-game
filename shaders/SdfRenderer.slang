@@ -605,7 +605,7 @@ float3 exactNormal<T>(T sceneFn, in float3 p)
   return normalize(normal);
 }
 
-static const int maxSteps = 256;
+static const int maxSteps = 180;
 Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float closestSurface,
                                 out uint stepCount, float baseHitEps = 1e-6, float farClipDist = 100)
   where T : IFloatSdfScene {
