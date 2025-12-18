@@ -390,11 +390,11 @@ proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false;
   glfw.terminate()
 
   let stats = logger.getStatsForRange(0, 999)
-  let (updateAvg, drawAvg) = (inMicroseconds(stats.avgUpdate), inMicroseconds(stats.avgDraw))
   let fpsAvg = inNanoseconds(initDuration(seconds = 1)) / inNanoseconds(stats.avgFrame)
+  let avgFrameUs = inMicroseconds(stats.avgFrame)
   let (minTime, maxTime) = (inMicroseconds(stats.minFrame), inMicroseconds(stats.maxFrame))
   let bufferDurationSec = inSeconds(stats.bufferDuration)
-  logger.writeTerminalStatusLine some(&"Performance stats for last {bufferDurationSec} seconds:\n  FPS: {fpsAvg:.1f}, 5% Min/max frametimes: {minTime}/{maxTime} μs")
+  logger.writeTerminalStatusLine some(&"Performance stats for last {bufferDurationSec} seconds:\n  FPS: {fpsAvg:.1f} ({avgFrameUs} µs), 5% Min/max frametimes: {minTime}/{maxTime} μs")
 
 when isMainModule:
   dispatch main
