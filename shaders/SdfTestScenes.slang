@@ -33,9 +33,7 @@ public struct ChatgptSimpleScene : IFloatSdfScene {
     float dCross = opUnion(dCyl1, dCyl2);
 
     // Combine all
-    float scene = opUnion(
-        dGround,
-        opUnion(dCluster, opUnion(dBoxTower, opUnion(dPyramidShape, dCross))));
+    float scene = opUnion(dGround, opUnion(dCluster, opUnion(dBoxTower, opUnion(dPyramidShape, dCross))));
 
     return scene;
   }
@@ -62,18 +60,10 @@ public struct ClaudeBuildingScene : IFloatSdfScene {
     ceiling = opSubtraction(skylight1, ceiling);
 
     // Support pillars (cylinders)
-    float pillar1 =
-        sdCappedCylinder(p - float3(-8.0, 0.0, -6.0), float3(0.0, -3.8, 0.0),
-                         float3(0.0, 3.8, 0.0), 0.3);
-    float pillar2 =
-        sdCappedCylinder(p - float3(8.0, 0.0, -6.0), float3(0.0, -3.8, 0.0),
-                         float3(0.0, 3.8, 0.0), 0.3);
-    float pillar3 =
-        sdCappedCylinder(p - float3(-8.0, 0.0, 6.0), float3(0.0, -3.8, 0.0),
-                         float3(0.0, 3.8, 0.0), 0.3);
-    float pillar4 =
-        sdCappedCylinder(p - float3(8.0, 0.0, 6.0), float3(0.0, -3.8, 0.0),
-                         float3(0.0, 3.8, 0.0), 0.3);
+    float pillar1 = sdCappedCylinder(p - float3(-8.0, 0.0, -6.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.3);
+    float pillar2 = sdCappedCylinder(p - float3(8.0, 0.0, -6.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.3);
+    float pillar3 = sdCappedCylinder(p - float3(-8.0, 0.0, 6.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.3);
+    float pillar4 = sdCappedCylinder(p - float3(8.0, 0.0, 6.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.3);
 
     // Central architectural feature - raised platform with stairs
     float platform = sdBox(p - float3(0.0, -3.0, 0.0), float3(3.0, 0.5, 3.0));
@@ -85,9 +75,7 @@ public struct ClaudeBuildingScene : IFloatSdfScene {
 
     // Display pedestals (boxes and cylinders)
     float pedestal1 = sdBox(p - float3(-5.0, -3.0, 0.0), float3(0.8, 0.8, 0.8));
-    float pedestal2 =
-        sdCappedCylinder(p - float3(5.0, -2.5, 0.0), float3(0.0, -1.3, 0.0),
-                         float3(0.0, 0.0, 0.0), 0.6);
+    float pedestal2 = sdCappedCylinder(p - float3(5.0, -2.5, 0.0), float3(0.0, -1.3, 0.0), float3(0.0, 0.0, 0.0), 0.6);
     float pedestal3 = sdBox(p - float3(0.0, -3.0, 5.0), float3(0.6, 0.6, 0.6));
 
     // Art objects on pedestals (spheres and pyramids)
@@ -96,16 +84,12 @@ public struct ClaudeBuildingScene : IFloatSdfScene {
     float art3 = sdSphere(p - float3(0.0, -1.8, 5.0), 0.4);
 
     // Benches (elongated boxes with cutouts)
-    float bench1Base =
-        sdBox(p - float3(-3.0, -3.4, -5.0), float3(2.0, 0.3, 0.5));
-    float bench1Cutout =
-        sdBox(p - float3(-3.0, -3.4, -5.0), float3(1.7, 0.5, 0.3));
+    float bench1Base = sdBox(p - float3(-3.0, -3.4, -5.0), float3(2.0, 0.3, 0.5));
+    float bench1Cutout = sdBox(p - float3(-3.0, -3.4, -5.0), float3(1.7, 0.5, 0.3));
     float bench1 = opSubtraction(bench1Cutout, bench1Base);
 
-    float bench2Base =
-        sdBox(p - float3(3.0, -3.4, -5.0), float3(2.0, 0.3, 0.5));
-    float bench2Cutout =
-        sdBox(p - float3(3.0, -3.4, -5.0), float3(1.7, 0.5, 0.3));
+    float bench2Base = sdBox(p - float3(3.0, -3.4, -5.0), float3(2.0, 0.3, 0.5));
+    float bench2Cutout = sdBox(p - float3(3.0, -3.4, -5.0), float3(1.7, 0.5, 0.3));
     float bench2 = opSubtraction(bench2Cutout, bench2Base);
 
     // Doorway (subtract from wall)
@@ -119,26 +103,16 @@ public struct ClaudeBuildingScene : IFloatSdfScene {
     walls = opSubtraction(window2, walls);
 
     // Decorative wall elements (thin cylinders as columns)
-    float decor1 =
-        sdCappedCylinder(p - float3(-11.0, 0.0, -3.0), float3(0.0, -3.5, 0.0),
-                         float3(0.0, 3.5, 0.0), 0.15);
-    float decor2 =
-        sdCappedCylinder(p - float3(-11.0, 0.0, 3.0), float3(0.0, -3.5, 0.0),
-                         float3(0.0, 3.5, 0.0), 0.15);
-    float decor3 =
-        sdCappedCylinder(p - float3(11.0, 0.0, -3.0), float3(0.0, -3.5, 0.0),
-                         float3(0.0, 3.5, 0.0), 0.15);
-    float decor4 =
-        sdCappedCylinder(p - float3(11.0, 0.0, 3.0), float3(0.0, -3.5, 0.0),
-                         float3(0.0, 3.5, 0.0), 0.15);
+    float decor1 = sdCappedCylinder(p - float3(-11.0, 0.0, -3.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.15);
+    float decor2 = sdCappedCylinder(p - float3(-11.0, 0.0, 3.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.15);
+    float decor3 = sdCappedCylinder(p - float3(11.0, 0.0, -3.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.15);
+    float decor4 = sdCappedCylinder(p - float3(11.0, 0.0, 3.0), float3(0.0, -4, 0.0), float3(0.0, 4, 0.0), 0.15);
 
     // Central sculpture (complex CSG)
     float sculptureBase =
-        sdCappedCylinder(p - float3(0.0, -1.0, 0.0), float3(0.0, -1.5, 0.0),
-                         float3(0.0, 0.0, 0.0), 1.0);
+      sdCappedCylinder(p - float3(0.0, -1.0, 0.0), float3(0.0, -1.5, 0.0), float3(0.0, 0.0, 0.0), 1.0);
     float sculptureSphere = sdSphere(p - float3(0.0, -0.5, 0.0), 0.8);
-    float sculptureBox =
-        sdBox(p - float3(0.0, -0.5, 0.0), float3(0.5, 0.5, 0.5));
+    float sculptureBox = sdBox(p - float3(0.0, -0.5, 0.0), float3(0.5, 0.5, 0.5));
     float sculpture = opIntersection(sculptureSphere, sculptureBox);
     sculpture = opUnion(sculpture, sculptureBase);
 
@@ -168,5 +142,76 @@ public struct ClaudeBuildingScene : IFloatSdfScene {
     scene = opUnion(scene, decor4);
 
     return scene;
+  }
+}
+
+// SDF program dynamicObjectsScene converted from SdfRenderer.nim to shader-hardcoded scene by ChatGPT. In this scene
+// the dynamic objects are at the positions where they would be in the original scene at 2.0 seconds.
+public struct DynamicObjectsSceneConversion : IFloatSdfScene {
+  [Differentiable]
+  public static float sdf(float3 p) {
+    // ------------------------------------------------------------------
+    // Inner rounded box (room interior)
+    // Nim: addRoundBox(vec3f(0,0,0), vec3f(9,3,9), 0.5)
+    // ------------------------------------------------------------------
+    float dInner = sdRoundBox(p, float3(9.0, 3.0, 9.0), 0.5);
+
+    // ------------------------------------------------------------------
+    // Outer box (room exterior shell)
+    // Nim: addBox(vec3f(0,0,0), vec3f(10,5,10))
+    // ------------------------------------------------------------------
+    float dOuter = sdBox(p, float3(10.0, 5.0, 10.0));
+
+    float dRoom = opSubtraction(dInner, dOuter);
+
+    // ------------------------------------------------------------------
+    // North window cut
+    // Nim: addBox(vec3f(0,0,-9), vec3f(1.5,1.5,2))
+    // ------------------------------------------------------------------
+    float dWindowNorth = sdBox(p - float3(0.0, 0.0, -9.0), float3(1.5, 1.5, 2.0));
+
+    dRoom = opSubtraction(dWindowNorth, dRoom);
+
+    // ------------------------------------------------------------------
+    // Dynamic cutter (hardcoded position)
+    // Nim: addBox(vec3f(0), vec3f(1.5))
+    // ------------------------------------------------------------------
+    float dDynamicCutter = sdBox(p - float3(9.8545, 0.0, 0.0), float3(1.5, 1.5, 1.5));
+
+    dRoom = opSubtraction(dDynamicCutter, dRoom);
+
+    // ------------------------------------------------------------------
+    // Moving sphere (hardcoded position)
+    // Nim: addSphere(vec3f(0,0,0), 2)
+    // Smooth union with room
+    // ------------------------------------------------------------------
+    float dSphere = sdSphere(p - float3(0.0, 3.5868, 0.0), 2.0);
+
+    dRoom = opSmoothUnion(dRoom, dSphere, 0.25);
+
+    // ------------------------------------------------------------------
+    // Interior box
+    // Nim: addBox(vec3f(0,-2,6), vec3f(2.5,1,2.5))
+    // ------------------------------------------------------------------
+    float dBox1 = sdBox(p - float3(0.0, -2.0, 6.0), float3(2.5, 1.0, 2.5));
+
+    dRoom = opUnion(dRoom, dBox1);
+
+    // ------------------------------------------------------------------
+    // Roof window cut
+    // Nim: addBox(vec3f(0,5,6), vec3f(3,2.5,3))
+    // ------------------------------------------------------------------
+    float dRoofWindow = sdBox(p - float3(0.0, 5.0, 6.0), float3(3.0, 2.5, 3.0));
+
+    dRoom = opSubtraction(dRoofWindow, dRoom);
+
+    // ------------------------------------------------------------------
+    // Ground plane
+    // Nim: addPlane(vec3f(0,-5,0), vec3f(0,1,0), 0)
+    // ------------------------------------------------------------------
+    float dGround = sdPlane(p - float3(0.0, -5.0, 0.0), float3(0.0, 1.0, 0.0), 0.0);
+
+    // Final scene
+    return opUnion(dRoom, dGround);
   }
 }
