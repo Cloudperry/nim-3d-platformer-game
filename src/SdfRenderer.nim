@@ -215,7 +215,7 @@ proc update(win: Window, frame: var FrameState) =
   # Update SDF program if dynamic scene
   case sdfRenderer.scene
   of DynamicObjectsTestRoom:
-    let time = if state.lockTime != 0.0: state.lockTime else: glfw.getTime().float32
+    let time = if state.lockTime != -1.0: state.lockTime else: glfw.getTime().float32
     let cutterInst = sdfRenderer.sceneProgram.data[sdfRenderer.dynamicCutter.instI]
     let newX: float32 = sin(time * 0.7) * 10
     sdfRenderer.sceneProgramData.data.args[cutterInst.argsI.uint32] = cast[uint32](newX)
@@ -291,6 +291,8 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
     logger.log fmt"Position (X, Y, Z): ({pos.x}, {pos.y}, {pos.z})"
     logger.log fmt"Orientation (Yaw, Pitch): ({state.camera.yaw}, {state.camera.pitch})"
     logger.log fmt"Time: {glfw.getTime().float32}"
+    logger.log fmt"CLI args for this perspective and time: --camLockX={pos.x} --camLockY={pos.y} --camLockZ={pos.z} " &
+      fmt"--camLockYaw={state.camera.yaw} --camLockPitch={state.camera.pitch} --lockTime={glfw.getTime().float32}"
   updateCameraAspect(width, height)
 
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
@@ -358,7 +360,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
 
 proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false;
           camLockX = 0'f32, camLockY = 0'f32, camLockZ = 0'f32, camLockYaw = 0'f32,
-          camLockPitch = 0'f32, lockTime = 0'f32) =
+          camLockPitch = 0'f32, lockTime = -1'f32) =
   sdfRenderer.scene = scene
   compileShaders(useSpirV, slangPath)
 
