@@ -605,7 +605,7 @@ float3 exactNormal<T>(T sceneFn, in float3 p)
   return normalize(normal);
 }
 
-static const int maxSteps = 180;
+static const int maxSteps = int.maxValue;
 Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out float rayDist, out float closestSurface,
                                 out uint stepCount, float baseHitEps = 1e-6, float farClipDist = 100)
   where T : IFloatSdfScene {
@@ -617,10 +617,8 @@ Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out f
   for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
     closestSurface = sceneFn.sdf(pos);
-    // Change to bigger epsilon on last step as a last attempt to find an intersection
-    float hitEps = stepCount == maxSteps - 1 ? maxHitEps : minHitEps;
 
-    if (closestSurface < hitEps) {
+    if (closestSurface < minHitEps) {
       float3 hitPos = pos + rayDir * closestSurface;
       return hitPos;
     }
@@ -791,7 +789,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-  renderScene(SdfProgramSceneNoMaterials(), output, rayDirection);
+  renderScene(ClaudeBuildingScene(), output, rayDirection);
   // NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
   // cause visible interference patterns between the two types of dithering.
   output.color += gradientNoiseWithStrength(input.fragCoord.xy, 1.0);
