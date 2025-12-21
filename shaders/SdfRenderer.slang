@@ -789,7 +789,7 @@ FragmentOutput fragmentMain(VertexOutput input) {
   float z = 1.0 / tan(radians(scene.fov) * 0.5); // Image plane depth
   float3 rayDirection = normalize(scene.camForward * z + scene.camRight * uvNdc.x + scene.camUp * uvNdc.y);
 
-  renderScene(SdfProgramSceneNoMaterials(), output, rayDirection);
+  renderScene(DynamicObjectsSceneConversion(), output, rayDirection);
   // NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
   // cause visible interference patterns between the two types of dithering.
   output.color += gradientNoiseWithStrength(input.fragCoord.xy, 1.0);
