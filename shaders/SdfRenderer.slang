@@ -617,10 +617,8 @@ Optional<float3> sphereTrace<T>(T sceneFn, float3 startPos, float3 rayDir, out f
   for (stepCount = 0; stepCount < maxSteps && rayDist <= farClipDist; stepCount++) {
     float3 pos = startPos + rayDir * rayDist;
     closestSurface = sceneFn.sdf(pos);
-    // Change to bigger epsilon on last step as a last attempt to find an intersection
-    float hitEps = stepCount == maxSteps - 1 ? maxHitEps : minHitEps;
 
-    if (closestSurface < hitEps) {
+    if (closestSurface < minHitEps) {
       float3 hitPos = pos + rayDir * closestSurface;
       return hitPos;
     }
