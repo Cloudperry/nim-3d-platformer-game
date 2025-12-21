@@ -131,7 +131,8 @@ proc softShadowsScene() =
   discard sdfRenderer.sceneBuilder.combine(gb2, box3).outputI 
   sdfRenderer.sceneProgramData.uploadField(materialData)
 
-proc init(win: Window, useSpirV: bool, cameraLockPos: Vec3f; cameraLockYaw, cameraLockPitch, lockTime: float32) =
+proc init(win: Window, useSpirV: bool, cameraLockPos: Vec3f;
+          cameraLockYaw, cameraLockPitch, lockTime: float32, slangToGlslTime: Duration) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
@@ -151,10 +152,16 @@ proc init(win: Window, useSpirV: bool, cameraLockPos: Vec3f; cameraLockYaw, came
   let (width, height) = glfw.framebufferSize(win)
   updateCameraAspect(width, height)
 
+  let shaderCompileStart = getMonoTime()
   if not useSpirV:
     sdfRenderer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
   else:
     sdfRenderer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  let shaderCompileEnd = getMonoTime()
+  let shaderCompileTime = shaderCompileEnd - shaderCompileStart
+  let shaderCompileTotalTime = slangToGlslTime + shaderCompileTime
+  logger.log fmt"Shader compilation took {shaderCompileTotalTime.inMicroseconds()} µs " &
+    fmt"({slangToGlslTime.inMicroseconds()} µs Slang -> GLSL, {shaderCompileTime.inMicroseconds()} µs GLSL -> GPU native program)"
   sdfRenderer.sceneUbo = initShaderDataBuffer[GpuSdfSceneUniforms](sdfRenderer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   sdfRenderer.debugOptUbo = initShaderDataBuffer[DebugSettings](sdfRenderer.shader, 1, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
   sdfRenderer.sceneProgramData = initShaderDataBuffer[SdfProgramData](
@@ -362,11 +369,14 @@ proc main(slangPath = "", scene = DynamicObjectsTestRoom, useSpirV = false;
           camLockX = 0'f32, camLockY = 0'f32, camLockZ = 0'f32, camLockYaw = 0'f32,
           camLockPitch = 0'f32, lockTime = -1'f32) =
   sdfRenderer.scene = scene
+  let slangToGlslStart = getMonoTime()
   compileShaders(useSpirV, slangPath)
+  let slangToGlslEnd = getMonoTime()
+  let slangToGlslTime = slangToGlslEnd - slangToGlslStart
 
   var (win, cfg) = initGlfwAndGlad()
   let cameraPos = vec3f(camLockX, camLockY, camLockZ)
-  win.init(useSpirV, cameraPos, camLockYaw, camLockPitch, lockTime)
+  win.init(useSpirV, cameraPos, camLockYaw, camLockPitch, lockTime, slangToGlslTime)
 
   var frame = FrameState()
   var prevFrameStart = getMonoTime()
