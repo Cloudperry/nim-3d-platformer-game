@@ -11,4 +11,5 @@
 # Reproducing tests in the thesis
 - Instructions to reproduce the tests in Fig. 4.3 can be found [here](https://github.com/Cloudperry/nim-opengl-csg/tree/sphere-tracing-inconsistent-perf)
 - Instructions to reproduce the shader compilation test at the start of section 4.3 can be found [here](https://github.com/Cloudperry/nim-opengl-csg/tree/sphere-tracing-hardcoded-scene-reload-time)
-- Instructions to reproduce the interpreter overhead test related to Fig. 4.5 can be found in C
+- Instructions to reproduce the interpreter overhead test related to Fig. 4.5 can be found in [here](https://github.com/Cloudperry/nim-opengl-csg/tree/sphere-tracing-dynamic-scene-perfloss)
+- All the benchmarks described in the linked branches output their results in the terminal
