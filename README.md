@@ -9,6 +9,6 @@
 3. Execute `nimble build` in the project directory
 4. After Nimble has built the project, the binary should be in the `bin/` folder inside the project directory
 # Reproducing tests in the thesis
-- Instructions to reproduce the shader compilation test at the start of section 4.3 can be found in A
-- Instructions to reproduce the tests in Fig. 4.3 can be found in B
+- Instructions to reproduce the tests in Fig. 4.3 can be found [here](https://github.com/Cloudperry/nim-opengl-csg/tree/sphere-tracing-inconsistent-perf)
+- Instructions to reproduce the shader compilation test at the start of section 4.3 can be found in B
 - Instructions to reproduce the interpreter overhead test related to Fig. 4.5 can be found in C
