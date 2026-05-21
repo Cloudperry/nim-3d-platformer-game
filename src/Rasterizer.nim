@@ -97,9 +97,16 @@ proc init(win: Window, useSpirV: bool) =
 
   logger = stdout.initLogger()
   let
+    ground = makeBox(vec3f(10.0, 0.5, 10.0), shapeColor)
     cube = makeBox(vec3f(0.5), shapeColor)
     pyramid = makePyramid(0.5'f32, shapeColor)
-    sphere = makeSphere(0.5, 16, 16, shapeColor)
+    sphere = makeSphere(0.5, 100, 100, shapeColor)
+    groundModel = initModel(
+      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1))
+    )
+    roofModel = initModel(
+      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, 3, 0), scale: vec3f(1, 1, 1))
+    )
     cubeModel = initModel(
       cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
     )
@@ -115,7 +122,7 @@ proc init(win: Window, useSpirV: bool) =
 
   rasterizer.scene = initScene(
     state.camera,
-    @[cubeModel, pyramidModel, sphereModel],
+    @[groundModel, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.5, 0.3)).some,
     vec3f(0.1).some
   )
