@@ -15,6 +15,11 @@ makeGlObjects(RaiseError, std140Alignment):
     ambientLightColor: Vec3f
 
 type
+  Config = object
+    useSpirv {. 
+      name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL" .}: bool
+    slangBinPath {.
+      name: "slangBinPath", defaultValue: "/opt/shader-slang-bin/bin", desc: "Slang shader compiler path" .}: string 
   RendererMode = enum
     Rasterizer, SdfRenderer
   EngineState = object
@@ -41,6 +46,8 @@ type
 const
   shapeColor = vec3f(1.0)
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
+  appDesc = "Nim OpenGL FPS game"
+  appName = "NimFpsGame"
 
 var
   state = EngineState()
@@ -220,7 +227,7 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   if newMonitor.handle != nil: # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(useSpirV: bool, slangPath = "") =
+proc compileShaders(useSpirV: bool, slangBinPath = "") =
   # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
   # in Slangc better by adding init proc.
   var opts = SlangcOptions(entryPoint: "vertexMain")
@@ -230,7 +237,7 @@ proc compileShaders(useSpirV: bool, slangPath = "") =
     opts.target = SpirV
   opts.stage = Vertex
   opts.inFile = shadersDir / "RasterizedRenderer.slang"
-  if slangPath.len > 0: opts.slangPath = slangPath
+  if slangBinPath.len > 0: opts.slangPath = slangBinPath
   state.vertexShaderText = compileShaderOrRaise(opts)
 
   opts.stage = Fragment
@@ -242,7 +249,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
   cfg.size = (w: 640, h: 480)
-  cfg.title = "Simple example"
+  cfg.title = appDesc
   cfg.resizable = true
   cfg.version = glv46
   cfg.forwardCompat = true
@@ -278,11 +285,12 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   glfw.swapInterval(1)
   return (win, cfg)
 
-proc main(slangPath = "", useSpirV = false) =
-  compileShaders(useSpirV, slangPath)
+proc main() =
+  let conf = Config.load(copyrightBanner=appDesc)
+  compileShaders(conf.useSpirV, conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.init(useSpirV)
+  win.init(conf.useSpirV)
 
   var frame = FrameState()
   var prevFrameStart = getMonoTime()
@@ -305,5 +313,4 @@ proc main(slangPath = "", useSpirV = false) =
   uninit()
   glfw.terminate()
 
-when isMainModule:
-  dispatch main
+main()
