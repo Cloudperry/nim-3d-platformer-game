@@ -10,6 +10,7 @@ struct VertexInput {
 }
 
 struct VertexOutput {
+  float4 fragCoord : SV_Position;
   float4 position : SV_Position;
   [[vk::location(0)]]
   float3 color;
@@ -31,6 +32,8 @@ struct SceneUniforms {
 
 [[vk::binding(0)]]
 ConstantBuffer<SceneUniforms> uniforms;
+[[vk::binding(1)]]
+StructuredBuffer<PointLight> pointLights;
 
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
@@ -47,17 +50,33 @@ VertexOutput vertexMain(VertexInput input) {
 [shader("fragment")]
 FragmentOutput fragmentMain(VertexOutput input) {
   FragmentOutput output;
+  const float specularExponent = 128.0f;
 
   // Get world space normal by ignoring scaling for now. Inverse transpose of modelToWorldMat is required to get correct
   // scaled normals. Use https://x.com/iquilezles/status/1866219178409316362 for better normal transforms?
   float3 viewDirection = normalize(input.worldPos - uniforms.cameraPos);
   float3 worldNormal = mul((float3x3)(uniforms.modelToWorldMat), input.normal);
+  // Directional light
   float3 lightDirection = -uniforms.mainLightDirection;
 	float3 ambientColor = uniforms.ambientLightColor * input.color;
   float3 diffuseColor = {0};
   diffuseColor += lambertDiffuse(lightDirection, worldNormal, uniforms.mainLightColor, input.color);
-  diffuseColor += blinnPhongSpecular(lightDirection, worldNormal, viewDirection, uniforms.mainLightColor, input.color, 128.0f);
+  diffuseColor += blinnPhongSpecular(lightDirection, worldNormal, viewDirection, uniforms.mainLightColor, input.color, specularExponent);
+  // Point lights
+  uint lightCount, stride;
+  pointLights.GetDimensions(lightCount, stride);
+  for (uint i = 0; i < lightCount; i++) {
+    let pointLight = pointLights[i];
+    let dirToLight = normalize(pointLight.position - input.worldPos);
+    float3 lightColor = pointLight.getIntensity(input.worldPos);
+    diffuseColor += lambertDiffuse(dirToLight, worldNormal, lightColor, input.color);
+    diffuseColor += blinnPhongSpecular(dirToLight, worldNormal, viewDirection, lightColor, input.color, specularExponent);
+  }
   output.color = float4(ambientColor + diffuseColor, 1.0f);
+  // NOTE: Add a toggle for this in case someone uses this renderer on a display that has built-in dithering. That could
+  // cause visible interference patterns between the two types of dithering.
+  // TODO: Fix visible dithering in dark parts of the image possibly by changing dithering strength based on light intensity?
+  output.color += gradientNoiseWithStrength(input.fragCoord.xy, 1.0);
 
   return output;
 }

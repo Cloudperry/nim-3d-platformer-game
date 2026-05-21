@@ -42,6 +42,7 @@ type
     elementBuffers: seq[ElementBufferRef]
     vertexArrays: seq[VertexArrayRef]
     scene: Scene[ColoredVertex]
+    pointLights: ShaderDataBufferRef[seq[PointLight]]
 
 const
   shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
@@ -123,7 +124,7 @@ proc init(win: Window, useSpirV: bool) =
   rasterizer.scene = initScene(
     state.camera,
     @[groundModel, roofModel, cubeModel, pyramidModel, sphereModel],
-    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.5, 0.3)).some,
+    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
   )
 
@@ -138,6 +139,20 @@ proc init(win: Window, useSpirV: bool) =
   # Set up OpenGL buffers for passing vertex data to shaders
   rasterizer.scene.makeGlBuffers()
   rasterizer.scene.setSceneUniforms()
+  rasterizer.pointLights = initShaderDataBuffer[seq[PointLight]](rasterizer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
+  rasterizer.pointLights.add PointLight(
+    position: vec3f(3, 0, 3), color: vec3f(0.8, 0.4, 0),
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  rasterizer.pointLights.add PointLight(
+    position: vec3f(-3, 0, 3), color: vec3f(0, 0.5, 0.7),
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  rasterizer.pointLights.add PointLight(
+    position: vec3f(0, 0, -5), color: vec3f(0.4, 0.4, 0.4),
+    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  )
+  rasterizer.pointLights.upload()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
