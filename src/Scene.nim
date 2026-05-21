@@ -1,9 +1,9 @@
-import std/[strformat, options]
+import std/[strformat, options, lenientops]
 import ./glad/gl
 import pkg/glm
 import GlUtils
 
-# ======================================== Camera handling and basic transforms ========================================
+# ======================================== Basic transforms ========================================
 const degToRad = PI / 180
 
 type
@@ -11,6 +11,40 @@ type
     pos*: Vec3f
     scale*: Vec3f = vec3f(1.0, 1.0, 1.0)
     rotation*: Vec3f
+
+proc getTransformMat*(t: Transform): Mat4f =
+  var scaleMat, translateMat, rotateMat = mat4f(1.0)
+  # Scaling
+  scaleMat[0, 0] = t.scale.x
+  scaleMat[1, 1] = t.scale.y
+  scaleMat[2, 2] = t.scale.z
+
+  # Rotation in X -> Y -> Z order (pitch -> yaw -> roll)
+  let (cx, cy, cz) = (cos(t.rotation.x), cos(t.rotation.y), cos(t.rotation.z))
+  let (sx, sy, sz) = (sin(t.rotation.x), sin(t.rotation.y), sin(t.rotation.z))
+  rotateMat.row0 = vec4f( cy * cz                 , -cy * sz                , sy       , 0.0 )
+  rotateMat.row1 = vec4f( sx * sy * cz + cx * sz  , -sx * sy * sz + cx * cz , -sx * cy , 0.0 )
+  rotateMat.row2 = vec4f( -cx * sy * cz + sx * sz , cx * sy * sz + sx * cz  , cx * cy  , 0.0 )
+
+  # Translation
+  translateMat[3, 0] = t.pos.x
+  translateMat[3, 1] = t.pos.y
+  translateMat[3, 2] = t.pos.z
+  return translateMat * rotateMat * scaleMat
+
+proc perspectiveRH*[T](fovy, aspect, zNear, zFar:T): Mat4[T] =
+  let tanHalfFovy = tan(fovy / T(2))
+  result = mat4[T](0.0)
+  result[0,0] = -T(1) / (aspect * tanHalfFovy)
+  result[1,1] = -T(1) / (tanHalfFovy)
+  result[2,3] = T(-1)
+
+  result[2,2] = -(zFar + zNear) / (zFar - zNear)
+  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
+
+# ======================================== Camera/player handling ========================================
+
+type
   ProjectionKind* = enum
     Orthographic, Perspective
   FpCameraOptions* = object
@@ -20,7 +54,7 @@ type
     yawScale*: float = 0.022 * degToRad
     sensitivity*: float = 2
     moveSpeed*: float = 3
-  # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
+    # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
   RasterizedCamera* = object
     pos*: Vec3f
     # Positive yaw means turning left and positive pitch means turning up
@@ -36,16 +70,6 @@ type
       frustumLength*: GLfloat
     of Perspective:
       verticalFov*: GLfloat
-
-proc perspectiveRH*[T]( fovy, aspect, zNear, zFar:T): Mat4[T] =
-  let tanHalfFovy = tan(fovy / T(2))
-  result = mat4[T](0.0)
-  result[0,0] = -T(1) / (aspect * tanHalfFovy)
-  result[1,1] = -T(1) / (tanHalfFovy)
-  result[2,3] = T(-1)
-
-  result[2,2] = -(zFar + zNear) / (zFar - zNear)
-  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
 
 proc updateProjectionMat*(c: var RasterizedCamera) =
   case c.kind
@@ -82,26 +106,6 @@ proc setOrthographic*(c: var RasterizedCamera, frustumLength, aspectRatio, nearC
   c.nearClip = nearClip
   c.farClip = farClip
   c.updateProjectionMat()
-
-proc getTransformMat*(t: Transform): Mat4f =
-  var scaleMat, translateMat, rotateMat = mat4f(1.0)
-  # Scaling
-  scaleMat[0, 0] = t.scale.x
-  scaleMat[1, 1] = t.scale.y
-  scaleMat[2, 2] = t.scale.z
-
-  # Rotation in X -> Y -> Z order (pitch -> yaw -> roll)
-  let (cx, cy, cz) = (cos(t.rotation.x), cos(t.rotation.y), cos(t.rotation.z))
-  let (sx, sy, sz) = (sin(t.rotation.x), sin(t.rotation.y), sin(t.rotation.z))
-  rotateMat.row0 = vec4f( cy * cz                 , -cy * sz                , sy       , 0.0 )
-  rotateMat.row1 = vec4f( sx * sy * cz + cx * sz  , -sx * sy * sz + cx * cz , -sx * cy , 0.0 )
-  rotateMat.row2 = vec4f( -cx * sy * cz + sx * sz , cx * sy * sz + sx * cz  , cx * cy  , 0.0 )
-
-  # Translation
-  translateMat[3, 0] = t.pos.x
-  translateMat[3, 1] = t.pos.y
-  translateMat[3, 2] = t.pos.z
-  return translateMat * rotateMat * scaleMat
 
 proc getLocalDirections*(c: RasterizedCamera): tuple[forward, right, up: Vec3f] =
   let
@@ -140,7 +144,7 @@ proc rotate*(c: var RasterizedCamera; co: FpCameraOptions, deltaX, deltaY: float
   if c.yaw > PI: c.yaw -= 2 * PI
   if c.yaw < -PI: c.yaw += 2 * PI
 
-proc doFirstPersonCameraMovement*(c: var RasterizedCamera, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+proc doFlyingCameraMovement*(c: var RasterizedCamera, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
   var tChanged = false
   if moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
@@ -174,10 +178,21 @@ type
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
   Scene*[T] = object
-    cam*: RasterizedCamera
     models*: seq[Model[T]]
+    player*: Player
+    colliders*: seq[BoxCollider]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
+
+  Box = concept b
+    b.halfExtents() is Vec3f
+    b.pos() is Vec3f
+  Player = object 
+    t: Transform
+    halfExtents: Vec3f
+  BoxCollider = object 
+    t: Transform
+    halfExtents: Vec3f
 
 makeGlObjects(RaiseError, std140Alignment):
   type
@@ -188,14 +203,35 @@ makeGlObjects(RaiseError, std140Alignment):
       padding: uint32 # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
+proc halfExtents(p: Player): Vec3f = p.halfExtents
+proc pos(p: Player): Vec3f = return p.t.pos
+
+proc minPoint(b: Box): Vec3f = b.pos() - b.hitBox()
+proc maxPoint(b: Box): Vec3f = b.pos() + b.hitBox()
+proc contains(b: Box, p: Vec3f): bool =
+  let hitboxMin = b.minPoint()
+  let hitboxMax = b.maxPoint()
+  return p.x in hitboxMin.x .. hitboxMax.x and p.y in hitboxMin.y .. hitboxMax.y and
+    p.z in hitboxMin.z .. hitboxMax.z 
+proc contains(b1: Box, b2: Box): bool =
+  let b1Min = b1.minPoint()
+  let b1Max = b1.maxPoint()
+  let b2Min = b2.minPoint()
+  let b2Max = b2.maxPoint()
+  return not (
+    b1Max.x < b2Min.x or b2Max.x < b1Min.x or
+    b1Max.y < b2Min.y or b2Max.y < b1Min.y or
+    b1Max.z < b2Min.z or b2Max.z < b1Min.z 
+  )
+
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
 
 proc initModel*[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()): Model[T] =
   Model[T](vertices: vertices, indices: indices, transform: transform)
 
-proc initScene*[T](cam: RasterizedCamera, models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
-  result = Scene[T](cam: cam, models: models)
+proc initScene*[T](models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
+  result = Scene[T](models: models)
   if dirLight.isSome:
     result.dirLight = dirLight.get
   if ambientLight.isSome:

@@ -15,11 +15,15 @@ makeGlObjects(RaiseError, std140Alignment):
     ambientLightColor: Vec3f
 
 type
+  MovementMode = enum
+    Flying, Walking
   Config = object
     useSpirv {. 
       name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL" .}: bool
     slangBinPath {.
       name: "slangBinPath", defaultValue: "/opt/shader-slang-bin/bin", desc: "Slang shader compiler path" .}: string 
+    movementMode {. 
+      name: "movementMode", defaultValue: Flying, desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)" .}: MovementMode
   RendererMode = enum
     Rasterizer, SdfRenderer
   EngineState = object
@@ -32,6 +36,7 @@ type
     # Graphics
     vertexShaderText, fragmentShaderText: string
     camera: RasterizedCamera
+    conf: Config
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
   RasterizerState = object
@@ -122,7 +127,6 @@ proc init(win: Window, useSpirV: bool) =
   win.updateCameraAspect(width, height)
 
   rasterizer.scene = initScene(
-    state.camera,
     @[groundModel, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
@@ -183,9 +187,13 @@ proc update(win: Window, frame: var FrameState) =
   elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
     moveDirection.y -= 1
 
-  state.camera.doFirstPersonCameraMovement(
-    state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-  )
+  case state.conf.movementMode
+  of Flying: 
+    state.camera.doFlyingCameraMovement(
+      state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+    )
+  of Walking:
+    discard
 
 proc uninit() =
   for i in 0 .. rasterizer.vertexArrays.high:
@@ -308,11 +316,11 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   return (win, cfg)
 
 proc main() =
-  let conf = Config.load(copyrightBanner=appDesc)
-  compileShaders(conf.useSpirV, conf.slangBinPath)
+  state.conf = Config.load(copyrightBanner=appDesc)
+  compileShaders(state.conf.useSpirV, state.conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.init(conf.useSpirV)
+  win.init(state.conf.useSpirV)
 
   var frame = FrameState()
   var prevFrameStart = getMonoTime()
