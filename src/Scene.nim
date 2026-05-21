@@ -28,9 +28,6 @@ type
     pitch*: GLfloat = 0
     viewMat*, projectionMat*: Mat4f
     aspectRatio*, nearClip*, farClip*: GLfloat
-    # Quick hack for updating matrices only when they are needed by the rasterizer. Think about it later,
-    # if the camera class should be split for ray tracing and rasterization.
-    rasterizerOn*: bool 
     forward*: Vec3f = vec3f(0, 0, -1)
     right*: Vec3f = vec3f(1, 0, 0)
     up*: Vec3f = vec3f(0, 1, 0)
@@ -51,21 +48,20 @@ proc perspectiveRH*[T]( fovy, aspect, zNear, zFar:T): Mat4[T] =
   result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
 
 proc updateProjectionMat*(c: var RasterizedCamera) =
-  if c.rasterizerOn:
-    case c.kind
-    of Orthographic:
-      let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
-      c.projectionMat = ortho[GLfloat](
-        -frustumW / 2, frustumW / 2,
-        -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
-      )
-    of Perspective:
-      c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
+  case c.kind
+  of Orthographic:
+    let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
+    c.projectionMat = ortho[GLfloat](
+      -frustumW / 2, frustumW / 2,
+      -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
+    )
+  of Perspective:
+    c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
 
 proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): RasterizedCamera =
   result = RasterizedCamera(
-    kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov, nearClip: nearClip, farClip: farClip,
-    rasterizerOn: rasterizerOn
+    kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov,
+    nearClip: nearClip, farClip: farClip,
   )
   result.updateProjectionMat()
 proc setPerspective*(c: var RasterizedCamera, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
@@ -123,8 +119,7 @@ proc getCameraViewMat(c: RasterizedCamera): Mat4f =
   let (forward, _, up) = c.getLocalDirections()
   return lookAt(c.pos, c.pos + forward, up)
 proc updateTransform*(c: var RasterizedCamera) =
-  if c.rasterizerOn:
-    c.viewMat = c.getCameraViewMat()
+  c.viewMat = c.getCameraViewMat()
 
 proc moveLocally*(c: var RasterizedCamera, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
   let moveBy = moveDirection.normalize() * co.moveSpeed * dt
