@@ -97,8 +97,8 @@ proc init(win: Window, useSpirV: bool) =
 
   logger = stdout.initLogger()
   let
-    cube = makeCube(shapeColor)
-    pyramid = makePyramid(shapeColor)
+    cube = makeBox(vec3f(0.5), shapeColor)
+    pyramid = makePyramid(0.5'f32, shapeColor)
     sphere = makeSphere(0.5, 16, 16, shapeColor)
     cubeModel = initModel(
       cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))

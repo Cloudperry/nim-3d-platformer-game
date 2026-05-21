@@ -1,98 +1,82 @@
-import std/lenientops
+import std/[sugar, lenientops]
 import glad/gl
 import pkg/glm
 import Scene, GlUtils
 
 type SimpleModel* = tuple[vertices: seq[ColoredVertex], indices: seq[GLuint]]
 
-# TODO: Make better shape functions. These are ChatGPT generated shapes for quick testing.
-proc makeCube*(color: Vec3f): SimpleModel =
-  return (
-    vertices: @[ 
-      # Front face (z = 0.5, normal = +Z)
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: color, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: color, normal: vec3f(0, 0, 1)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: color, normal: vec3f(0, 0, 1)),
+proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
+  let topRightFront = halfExtents * vec3f(1.0, 1.0, 1.0)
+  let topLeftFront = halfExtents * vec3f(-1.0, 1.0, 1.0)
+  let botLeftFront = halfExtents * vec3f(-1.0, -1.0, 1.0)
+  let botRightFront = halfExtents * vec3f(1.0, -1.0, 1.0)
+  let topRightBack = halfExtents * vec3f(1.0, 1.0, -1.0)
+  let topLeftBack = halfExtents * vec3f(-1.0, 1.0, -1.0)
+  let botLeftBack = halfExtents * vec3f(-1.0, -1.0, -1.0)
+  let botRightBack = halfExtents * vec3f(1.0, -1.0, -1.0)
+  var vertices: seq[ColoredVertex]
+  # Front
+  for vert in [botLeftFront, botRightFront, topRightFront, topLeftFront]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, 0, 1))
+  # Back
+  for vert in [botRightBack, botLeftBack, topLeftBack, topRightBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, 0, -1))
+  # Right
+  for vert in [botRightFront, botRightBack, topRightBack, topRightFront]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(1, 0, 0))
+  # Left
+  for vert in [botLeftBack, botLeftFront, topLeftFront, topLeftBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(-1, 0, 0))
+  # Up
+  for vert in [topLeftFront, topRightFront, topRightBack, topLeftBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, 1, 0))
+  # Down
+  for vert in [botRightFront, botLeftFront, botLeftBack, botRightBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, -1, 0))
+  
+  var indices: seq[int]
+  for base in countup(0, 23, 4):
+    indices.add base
+    indices.add base + 1
+    indices.add base + 2
+    indices.add base
+    indices.add base + 2
+    indices.add base + 3
 
-      # Back face (z = -0.5, normal = -Z)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: color, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: color, normal: vec3f(0, 0, -1)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: color, normal: vec3f(0, 0, -1)),
+  return (vertices: vertices, indices: indices)
 
-      # Left face (x = -0.5, normal = -X)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: color, normal: vec3f(-1, 0, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: color, normal: vec3f(-1, 0, 0)),
+proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
+  let apex = vec3f(0, halfSizeLen, 0)
+  let botLeftFront  = vec3f(-halfSizeLen, -halfSizeLen,  halfSizeLen)
+  let botRightFront = vec3f( halfSizeLen, -halfSizeLen,  halfSizeLen)
+  let botRightBack  = vec3f( halfSizeLen, -halfSizeLen, -halfSizeLen)
+  let botLeftBack   = vec3f(-halfSizeLen, -halfSizeLen, -halfSizeLen)
 
-      # Right face (x = 0.5, normal = +X)
-      ColoredVertex(pos: vec3f(0.5, -0.5, -0.5), color: color, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5, -0.5,  0.5), color: color, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5,  0.5,  0.5), color: color, normal: vec3f(1, 0, 0)),
-      ColoredVertex(pos: vec3f(0.5,  0.5, -0.5), color: color, normal: vec3f(1, 0, 0)),
+  var vertices: seq[ColoredVertex]
+  # Base
+  for vert in [botRightFront, botLeftFront, botLeftBack, botRightBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, -1, 0))
+  # Front
+  for vert in [apex, botLeftFront, botRightFront]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0, 0.5, 0.5)))
+  # Back
+  for vert in [apex, botRightBack, botLeftBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0, 0.5, -0.5)))
+  # Right
+  for vert in [apex, botRightFront, botRightBack]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0.5, 0.5, 0)))
+  # Left
+  for vert in [apex, botLeftBack, botLeftFront]:
+    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(-0.5, 0.5, 0)))
 
-      # Top face (y = 0.5, normal = +Y)
-      ColoredVertex(pos: vec3f(-0.5,  0.5, -0.5), color: color, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5, -0.5), color: color, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f( 0.5,  0.5,  0.5), color: color, normal: vec3f(0, 1, 0)),
-      ColoredVertex(pos: vec3f(-0.5,  0.5,  0.5), color: color, normal: vec3f(0, 1, 0)),
+  var indices: seq[int]
+  # Base quad
+  indices.add [0, 1, 2, 0, 2, 3]
+  # Four triangle sides
+  for base in countup(4, 15, 3):
+    indices.add [base, base + 1, base + 2]
 
-      # Bottom face (y = -0.5, normal = -Y)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: vec3f(0, -1, 0))
-    ],
-    indices: @[
-      0, 1, 2,  0, 2, 3, # Front
-      4, 6, 5,  4, 7, 6, # Back
-      8, 9, 10,  8, 10, 11, # Left
-      12, 14, 13,  12, 15, 14, # Right
-      16, 18, 17,  16, 19, 18, # Top
-      20, 21, 22,  20, 22, 23 # Bottom
-    ]
-  )
-
-proc makePyramid*(color: Vec3f): SimpleModel =
-  return (
-    vertices: @[
-      # Base (y = -0.5, normal = -Y)
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: color, normal: vec3f(0, -1, 0)),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: vec3f(0, -1, 0)),
-
-      # Apex (0, 0.5, 0)
-      # Side 1 (front, z=+0.5)
-      ColoredVertex(pos: vec3f(0, 0.5, 0), color: color, normal: normalize(vec3f(0, 0.5, 0.5))),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: normalize(vec3f(0, 0.5, 0.5))),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: color, normal: normalize(vec3f(0, 0.5, 0.5))),
-
-      # Side 2 (back, z=-0.5)
-      ColoredVertex(pos: vec3f(0, 0.5, 0), color: color, normal: normalize(vec3f(0, 0.5, -0.5))),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: color, normal: normalize(vec3f(0, 0.5, -0.5))),
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: normalize(vec3f(0, 0.5, -0.5))),
-
-      # Side 3 (right, x=+0.5)
-      ColoredVertex(pos: vec3f(0, 0.5, 0), color: color, normal: normalize(vec3f(0.5, 0.5, 0))),
-      ColoredVertex(pos: vec3f( 0.5, -0.5,  0.5), color: color, normal: normalize(vec3f(0.5, 0.5, 0))),
-      ColoredVertex(pos: vec3f( 0.5, -0.5, -0.5), color: color, normal: normalize(vec3f(0.5, 0.5, 0))),
-
-      # Side 4 (left, x=-0.5)
-      ColoredVertex(pos: vec3f(0, 0.5, 0), color: color, normal: normalize(vec3f(-0.5, 0.5, 0))),
-      ColoredVertex(pos: vec3f(-0.5, -0.5, -0.5), color: color, normal: normalize(vec3f(-0.5, 0.5, 0))),
-      ColoredVertex(pos: vec3f(-0.5, -0.5,  0.5), color: color, normal: normalize(vec3f(-0.5, 0.5, 0)))
-    ],
-    indices: @[
-      0, 1, 2,  0, 2, 3, # Base
-      4, 5, 6,   # Front
-      7, 8, 9,   # Back
-      10, 11, 12,# Right
-      13, 14, 15 # Left
-    ]
-  )
+  return (vertices: vertices, indices: indices)
 
 proc makeSphere*(radius: float; slices, stacks: int; color: Vec3f): SimpleModel =
   var vertices: seq[ColoredVertex]
