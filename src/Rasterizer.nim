@@ -44,7 +44,7 @@ type
     scene: Scene[ColoredVertex]
 
 const
-  shapeColor = vec3f(1.0)
+  shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
   appDesc = "Nim OpenGL FPS game"
   appName = "NimFpsGame"
@@ -116,7 +116,7 @@ proc init(win: Window, useSpirV: bool) =
   rasterizer.scene = initScene(
     state.camera,
     @[cubeModel, pyramidModel, sphereModel],
-    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.6, 0.3)).some,
+    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(1, 0.5, 0.3)).some,
     vec3f(0.1).some
   )
 
@@ -148,17 +148,17 @@ proc update(win: Window, frame: var FrameState) =
 
   # Keyboard input
   var moveDirection = vec3f(0)
-  if win.isKeyDown(keyComma):
+  if win.isKeyDown(keyComma) or win.isKeyDown(keyW):
     moveDirection.z -= 1
-  elif win.isKeyDown(keyO):
+  elif win.isKeyDown(keyO) or win.isKeyDown(keyS):
     moveDirection.z += 1
-  if win.isKeyDown(keyE):
+  if win.isKeyDown(keyE) or win.isKeyDown(keyD):
     moveDirection.x += 1
   elif win.isKeyDown(keyA):
     moveDirection.x -= 1
   if win.isKeyDown(keySpace):
     moveDirection.y += 1
-  elif win.isKeyDown(keyBackslash):
+  elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
     moveDirection.y -= 1
 
   state.camera.doFirstPersonCameraMovement(
