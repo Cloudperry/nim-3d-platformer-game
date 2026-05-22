@@ -37,7 +37,7 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
-    camera: Camera
+    player: Player
     conf: Config
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
@@ -64,12 +64,12 @@ var
 
 proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
-  case state.camera.kind
-  of Perspective: state.camera.setPerspective(
-    state.camera.verticalFov, ratio, state.camera.nearClip, state.camera.farClip
+  case state.player.cam.kind
+  of Perspective: state.player.cam.setPerspective(
+    state.player.cam.verticalFov, ratio, state.player.cam.nearClip, state.player.cam.farClip
   )
-  of Orthographic: state.camera.setOrthographic(
-    state.camera.frustumLength, ratio, state.camera.nearClip, state.camera.farClip
+  of Orthographic: state.player.cam.setOrthographic(
+    state.player.cam.frustumLength, ratio, state.player.cam.nearClip, state.player.cam.farClip
   )
 
   glViewport(0, 0, width, height)
@@ -100,9 +100,9 @@ proc init(win: Window, useSpirV: bool) =
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   state.cameraOpts = FpCameraOptions()
   state.cameraOpts.sensitivity = state.conf.mouseSensitivity
-  state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
-  state.camera.pos = vec3f(0, 0, 0)
-  state.camera.updateTransform()
+  state.player.cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
+  state.player.cam.pos = vec3f(0, 0, 0)
+  state.player.cam.updateTransform()
 
   logger = stdout.initLogger()
   let
@@ -133,6 +133,10 @@ proc init(win: Window, useSpirV: bool) =
     @[groundModel, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
+  )
+  rasterizer.scene.colliders.add BoxCollider(
+    t: Transform(pos: vec3f(10.0, 0.5, 10.0)),
+    halfExtents: vec3f(10, 0.5, 10)
   )
 
   # Compile and link shader and check errors
@@ -192,11 +196,14 @@ proc update(win: Window, frame: var FrameState) =
 
   case state.conf.movementMode
   of Flying: 
-    state.camera.doFlyingCameraMovement(
+    state.player.cam.doFlyingCameraMovement(
       state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
-    discard
+    state.player.checkGrounded(rasterizer.scene)
+    state.player.doWalkingPlayerMovement(
+      state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+    )
 
 proc uninit() =
   for i in 0 .. rasterizer.vertexArrays.high:
@@ -216,7 +223,7 @@ proc draw(win: Window) =
 
   rasterizer.shader.use()
   rasterizer.uniforms.use(rasterizer.shader)
-  state.camera.setUniforms()
+  state.player.cam.setUniforms()
 
   for i in 0 .. rasterizer.vertexArrays.high:
     rasterizer.vertexArrays[i].use()

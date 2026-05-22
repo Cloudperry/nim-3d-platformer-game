@@ -115,7 +115,7 @@ proc getLocalDirections*(c: Camera): tuple[forward, right, up: Vec3f] =
     cosYaw = cos(c.yaw + PI / 2)
     sinYaw = sin(c.yaw + PI / 2)
     forward = vec3f(cosPitch * -cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
-    right = cross(forward, vec3f(0, 1, 0)).normalize()
+    right = cross(forward, vec3f(0, 1, 0))
     up = cross(right, forward)
   return (forward, right, up)
 
@@ -128,8 +128,16 @@ proc updateTransform*(c: var Camera) =
 proc moveLocally*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
   let moveBy = moveDirection.normalize() * co.moveSpeed * dt
   let (forward, right, up) = c.getLocalDirections()
-  let moveByWorldSpace = moveBy.x * right + moveBy.y * up - moveBy.z * forward
-  c.pos += moveByWorldSpace
+  c.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
+
+proc getLocalPlaneMovement*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f, dt: float): Vec3f =
+  let moveBy = moveDirection.normalize() * co.moveSpeed * dt
+  let
+    cosYaw = cos(c.yaw + PI / 2)
+    sinYaw = sin(c.yaw + PI / 2)
+    planeForward = vec3f(-cosYaw, 0, -sinYaw).normalize()
+    planeRight = cross(planeForward, vec3f(0, 1, 0))
+  return moveBy.x * planeRight - moveBy.z * planeForward
 
 proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
   let deltaYaw = deltaX * co.yawScale * co.sensitivity
@@ -162,6 +170,9 @@ proc doFlyingCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: 
     (c.forward, c.right, c.up) = c.getLocalDirections()
 
 # ======================================== Models and rasterized scene representation ========================================
+const maxVelocity = 88.8888889
+const gravity = 9.81
+const jumpSpeed = 7.0
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
   ColoredVertex* = object
@@ -184,15 +195,14 @@ type
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
 
-  Box = concept b
-    b.halfExtents() is Vec3f
-    b.pos() is Vec3f
-  Player = object 
-    cam: Camera
-    halfExtents: Vec3f
-  BoxCollider = object 
-    t: Transform
-    halfExtents: Vec3f
+  Player* = object
+    cam*: Camera
+    grounded*: bool
+    velocity*, halfExtents*: Vec3f
+    hitboxYOffset*: float
+  BoxCollider* = object 
+    t*: Transform
+    halfExtents*: Vec3f
 
 makeGlObjects(RaiseError, std140Alignment):
   type
@@ -204,10 +214,16 @@ makeGlObjects(RaiseError, std140Alignment):
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
 proc halfExtents(p: Player): Vec3f = p.halfExtents
-proc pos(p: Player): Vec3f = return p.cam.pos
+proc pos(p: Player): Vec3f = return p.cam.pos + vec3f(0, p.hitboxYOffset, 0)
+proc halfExtents(b: BoxCollider): Vec3f = b.halfExtents
+proc pos(b: BoxCollider): Vec3f = return b.t.pos
 
-proc minPoint(b: Box): Vec3f = b.pos() - b.hitBox()
-proc maxPoint(b: Box): Vec3f = b.pos() + b.hitBox()
+type Box = concept b
+  b.halfExtents() is Vec3f
+  b.pos() is Vec3f
+
+proc minPoint(b: Box): Vec3f = b.pos() - b.halfExtents()
+proc maxPoint(b: Box): Vec3f = b.pos() + b.halfExtents()
 proc contains(b: Box, p: Vec3f): bool =
   let hitboxMin = b.minPoint()
   let hitboxMax = b.maxPoint()
@@ -223,6 +239,47 @@ proc contains(b1: Box, b2: Box): bool =
     b1Max.y < b2Min.y or b2Max.y < b1Min.y or
     b1Max.z < b2Min.z or b2Max.z < b1Min.z 
   )
+
+proc checkGrounded*(p: var Player, s: Scene) =
+  for collider in s.colliders:
+    if p in collider:
+      p.grounded = true
+      return
+  p.grounded = false
+
+proc doWalkingPlayerMovement*(p: var Player, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+  var tChanged = false
+  
+  # Rotation
+  if (deltaX, deltaY) != (0.0, 0.0):
+    p.cam.rotate(co, deltaX, -deltaY)
+    tChanged = true
+
+  # Movement
+  if moveDirection.xz != vec2f(0):
+    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
+    if moveDirectionPlane != vec3f(0):
+      p.velocity.xz = p.cam.getLocalPlaneMovement(co, moveDirectionPlane, dt).xz
+    else:
+      p.velocity.xz = vec3f(0).xz
+  
+  if not p.grounded:  
+    p.velocity.y -= gravity
+  else:
+    if moveDirection.y > 0:
+      p.velocity.y = jumpSpeed
+    else:
+      p.velocity.y = 0
+
+  if p.velocity.length() > maxVelocity:
+    let velocityNorm = p.velocity.normalize()
+    p.velocity = maxVelocity.float32 * velocityNorm
+  p.cam.pos += dt.float32 * p.velocity
+  tChanged = true
+
+  if tChanged:
+    p.cam.updateTransform()
+    (p.cam.forward, p.cam.right, p.cam.up) = p.cam.getLocalDirections()
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
