@@ -24,6 +24,8 @@ type
       name: "slangBinPath", defaultValue: "/opt/shader-slang-bin/bin", desc: "Slang shader compiler path" .}: string 
     movementMode {. 
       name: "movementMode", defaultValue: Flying, desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)" .}: MovementMode
+    mouseSensitivity {. 
+      name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity" .}: float
   RendererMode = enum
     Rasterizer, SdfRenderer
   EngineState = object
@@ -35,7 +37,7 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
-    camera: RasterizedCamera
+    camera: Camera
     conf: Config
   FrameState = object
     cursorDeltaX, cursorDeltaY, deltaTime: float
@@ -97,6 +99,7 @@ proc init(win: Window, useSpirV: bool) =
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   state.cameraOpts = FpCameraOptions()
+  state.cameraOpts.sensitivity = state.conf.mouseSensitivity
   state.camera = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
   state.camera.pos = vec3f(0, 0, 0)
   state.camera.updateTransform()
@@ -206,7 +209,7 @@ proc uninit() =
 proc setUniforms(m: Model) =
   rasterizer.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
-proc setUniforms(c: RasterizedCamera)
+proc setUniforms(c: Camera)
 proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
@@ -222,7 +225,7 @@ proc draw(win: Window) =
 
 proc sizeCb(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
 
-proc setUniforms(c: RasterizedCamera) =
+proc setUniforms(c: Camera) =
   rasterizer.uniforms.worldToViewMat = c.viewMat
   rasterizer.uniforms.viewToClipMat = c.projectionMat
 
