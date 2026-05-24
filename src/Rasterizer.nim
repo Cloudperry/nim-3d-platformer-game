@@ -103,6 +103,7 @@ proc init(win: Window, useSpirV: bool) =
   state.player.cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
   state.player.cam.pos = vec3f(0, 0, 0)
   state.player.cam.updateTransform()
+  state.player.collider = BoxCollider(t: Transform(pos: vec3f(0, 1, 0)), halfExtents: vec3f(0.25, 2.0, 0.25))
 
   logger = stdout.initLogger()
   let
@@ -113,8 +114,11 @@ proc init(win: Window, useSpirV: bool) =
     groundModel = initModel(
       ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1))
     )
+    groundModelLowerLv = initModel(
+      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -5, 10), scale: vec3f(1, 1, 1))
+    )
     roofModel = initModel(
-      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, 3, 0), scale: vec3f(1, 1, 1))
+      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, 5, 0), scale: vec3f(1, 1, 1))
     )
     cubeModel = initModel(
       cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
@@ -130,12 +134,16 @@ proc init(win: Window, useSpirV: bool) =
   win.updateCameraAspect(width, height)
 
   rasterizer.scene = initScene(
-    @[groundModel, roofModel, cubeModel, pyramidModel, sphereModel],
+    @[groundModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
   )
   rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(10.0, 0.5, 10.0)),
+    t: Transform(pos: vec3f(0.0, -2.0, 0.0)),
+    halfExtents: vec3f(10, 0.5, 10)
+  )
+  rasterizer.scene.colliders.add BoxCollider(
+    t: Transform(pos: vec3f(0.0, -5.0, 10.0)),
     halfExtents: vec3f(10, 0.5, 10)
   )
 

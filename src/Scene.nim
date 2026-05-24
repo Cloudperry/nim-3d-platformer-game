@@ -173,8 +173,11 @@ proc doFlyingCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: 
 const maxVelocity = 88.8888889
 const gravity = 9.81
 const jumpSpeed = 7.0
+const jumpHeight = 3.5
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
+  JumpState = enum
+    Ready, Jumping, Falling
   ColoredVertex* = object
     pos*, color*, normal*: Vec3f
   # TODO: Add models with textures
@@ -195,14 +198,16 @@ type
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
 
-  Player* = object
-    cam*: Camera
-    grounded*: bool
-    velocity*, halfExtents*: Vec3f
-    hitboxYOffset*: float
   BoxCollider* = object 
     t*: Transform
     halfExtents*: Vec3f
+  Player* = object
+    cam*: Camera
+    grounded*: bool
+    jump*: JumpState
+    jumpStart: float32
+    velocity*: Vec3f
+    collider*: BoxCollider
 
 makeGlObjects(RaiseError, std140Alignment):
   type
@@ -213,23 +218,14 @@ makeGlObjects(RaiseError, std140Alignment):
       padding: uint32 # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
-proc halfExtents(p: Player): Vec3f = p.halfExtents
-proc pos(p: Player): Vec3f = return p.cam.pos + vec3f(0, p.hitboxYOffset, 0)
-proc halfExtents(b: BoxCollider): Vec3f = b.halfExtents
-proc pos(b: BoxCollider): Vec3f = return b.t.pos
-
-type Box = concept b
-  b.halfExtents() is Vec3f
-  b.pos() is Vec3f
-
-proc minPoint(b: Box): Vec3f = b.pos() - b.halfExtents()
-proc maxPoint(b: Box): Vec3f = b.pos() + b.halfExtents()
-proc contains(b: Box, p: Vec3f): bool =
+proc minPoint(b: BoxCollider): Vec3f = b.t.pos - b.halfExtents
+proc maxPoint(b: BoxCollider): Vec3f = b.t.pos + b.halfExtents
+proc contains(b: BoxCollider, p: Vec3f): bool =
   let hitboxMin = b.minPoint()
   let hitboxMax = b.maxPoint()
   return p.x in hitboxMin.x .. hitboxMax.x and p.y in hitboxMin.y .. hitboxMax.y and
     p.z in hitboxMin.z .. hitboxMax.z 
-proc contains(b1: Box, b2: Box): bool =
+proc contains(b1, b2: BoxCollider): bool =
   let b1Min = b1.minPoint()
   let b1Max = b1.maxPoint()
   let b2Min = b2.minPoint()
@@ -241,8 +237,9 @@ proc contains(b1: Box, b2: Box): bool =
   )
 
 proc checkGrounded*(p: var Player, s: Scene) =
-  for collider in s.colliders:
-    if p in collider:
+  for i, collider in s.colliders:
+    if p.collider in collider:
+      echo fmt"Colliding with scene collider {i}"
       p.grounded = true
       return
   p.grounded = false
@@ -262,19 +259,30 @@ proc doWalkingPlayerMovement*(p: var Player, co: FpCameraOptions, moveDirection:
       p.velocity.xz = p.cam.getLocalPlaneMovement(co, moveDirectionPlane, dt).xz
     else:
       p.velocity.xz = vec3f(0).xz
-  
-  if not p.grounded:  
-    p.velocity.y -= gravity
   else:
-    if moveDirection.y > 0:
-      p.velocity.y = jumpSpeed
-    else:
+    p.velocity = vec3f(0)
+
+  if not p.grounded and p.jump in {Ready, Falling}:
+    echo "Falling"
+    p.velocity.y -= gravity * dt.float32
+  else:
+    if moveDirection.y > 0 and p.jump in {Ready, Jumping}:
+      echo "Jumping"
+      p.jump = Jumping
+      p.velocity.y = jumpSpeed.float32 * dt.float32
+    elif p.jump == Jumping:
+      echo "Jump canceled/capped"
       p.velocity.y = 0
+      p.jump = Falling
+    else:
+      echo "Jump reset"
+      p.jump = Ready
 
   if p.velocity.length() > maxVelocity:
     let velocityNorm = p.velocity.normalize()
     p.velocity = maxVelocity.float32 * velocityNorm
-  p.cam.pos += dt.float32 * p.velocity
+  p.cam.pos += p.velocity
+  p.collider.t.pos += p.velocity
   tChanged = true
 
   if tChanged:
