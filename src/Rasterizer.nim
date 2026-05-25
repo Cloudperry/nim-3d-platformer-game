@@ -59,7 +59,6 @@ const
 
 var
   state = EngineState()
-  logger = Logger()
   rasterizer = RasterizerState()
 
 proc updateCameraAspect(win: Window; width, height: int) =
@@ -101,18 +100,22 @@ proc init(win: Window, useSpirV: bool) =
   state.cameraOpts = FpCameraOptions()
   state.cameraOpts.sensitivity = state.conf.mouseSensitivity
   state.player.cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
-  state.player.cam.pos = vec3f(0, 0, 0)
+  state.player.cam.pos = vec3f(0, 1, 0)
   state.player.cam.updateTransform()
   state.player.collider = BoxCollider(t: Transform(pos: vec3f(0, 1, 0)), halfExtents: vec3f(0.25, 2.0, 0.25))
 
-  logger = stdout.initLogger()
+  stdout.initGlobalLogger()
   let
     ground = makeBox(vec3f(10.0, 0.5, 10.0), shapeColor)
+    wall = makeBox(vec3f(10.0, 7, 1.0), shapeColor)
     cube = makeBox(vec3f(0.5), shapeColor)
     pyramid = makePyramid(0.5'f32, shapeColor)
     sphere = makeSphere(0.5, 100, 100, shapeColor)
     groundModel = initModel(
       ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1))
+    )
+    wallModel = initModel(
+      wall.vertices, wall.indices, transform = Transform(pos: vec3f(0, 1.5, -9), scale: vec3f(1, 1, 1))
     )
     groundModelLowerLv = initModel(
       ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -5, 10), scale: vec3f(1, 1, 1))
@@ -134,17 +137,23 @@ proc init(win: Window, useSpirV: bool) =
   win.updateCameraAspect(width, height)
 
   rasterizer.scene = initScene(
-    @[groundModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel, sphereModel],
+    @[groundModel, wallModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
   )
   rasterizer.scene.colliders.add BoxCollider(
     t: Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    halfExtents: vec3f(10, 0.5, 10)
+    halfExtents: vec3f(10, 0.5, 10),
+    tags: {Ground}
   )
   rasterizer.scene.colliders.add BoxCollider(
     t: Transform(pos: vec3f(0.0, -5.0, 10.0)),
-    halfExtents: vec3f(10, 0.5, 10)
+    halfExtents: vec3f(10, 0.5, 10),
+    tags: {Ground}
+  )
+  rasterizer.scene.colliders.add BoxCollider(
+    t: Transform(pos: vec3f(0.0, 1.5, -9.0)),
+    halfExtents: vec3f(10, 7, 1)
   )
 
   # Compile and link shader and check errors
@@ -208,9 +217,8 @@ proc update(win: Window, frame: var FrameState) =
       state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
-    state.player.checkGrounded(rasterizer.scene)
     state.player.doWalkingPlayerMovement(
-      state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+      rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
 
 proc uninit() =
@@ -253,11 +261,11 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
       let monitorArea = state.monitor.workArea()
       let monitorMode = state.monitor.videoMode()
       state.prevWinProps = (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
-      logger.log fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
+      globalLogger.log fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
       win.monitor = (state.monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)
     else:
       let winProps = (state.prevWinProps.x, state.prevWinProps.y, state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate)
-      logger.log fmt"Going out of fullscreen {winProps}"
+      globalLogger.log fmt"Going out of fullscreen {winProps}"
       win.monitor = (
         newMonitor(nil), state.prevWinProps.x, state.prevWinProps.y,
         state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate
@@ -313,7 +321,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
     #[
     This proc probably needs to be global for it to not cause a segfault as the logger proc
     let glDebugLoggerProc: LoggerProc = proc (msg: string) =
-      logger.log msg
+      log msg
     setGlDebugLoggerProc glDebugLoggerProc
     ]#
     setupGlDebugLogging()
@@ -328,7 +336,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   if rawMouseMotionSupported() != 0:
     win.rawMouseMotion = true
   else:
-    logger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
+    globalLogger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
   glfw.swapInterval(1)
   return (win, cfg)
@@ -355,7 +363,7 @@ proc main() =
     glfw.swapBuffers(win)
 
     let currFrameEnd = getMonoTime()
-    logger.logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
+    logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
 
     glfw.pollEvents()
   uninit()

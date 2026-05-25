@@ -1,7 +1,7 @@
 import std/[strformat, options, lenientops]
 import ./glad/gl
 import pkg/glm
-import GlUtils
+import GlUtils, Logger
 
 # ======================================== Basic transforms ========================================
 const degToRad = PI / 180
@@ -53,7 +53,7 @@ type
     pitchScale*: float = 0.022 * degToRad 
     yawScale*: float = 0.022 * degToRad
     sensitivity*: float = 2
-    moveSpeed*: float = 3
+    moveSpeed*: float = 9
     # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
   Camera* = object
     pos*: Vec3f
@@ -130,14 +130,14 @@ proc moveLocally*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f, dt: 
   let (forward, right, up) = c.getLocalDirections()
   c.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
 
-proc getLocalPlaneMovement*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f, dt: float): Vec3f =
-  let moveBy = moveDirection.normalize() * co.moveSpeed * dt
+proc getLocalPlaneMoveDir*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
+  let moveDir = moveDirection.normalize() * co.moveSpeed
   let
     cosYaw = cos(c.yaw + PI / 2)
     sinYaw = sin(c.yaw + PI / 2)
     planeForward = vec3f(-cosYaw, 0, -sinYaw).normalize()
     planeRight = cross(planeForward, vec3f(0, 1, 0))
-  return moveBy.x * planeRight - moveBy.z * planeForward
+  return moveDir.x * planeRight - moveDir.z * planeForward
 
 proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
   let deltaYaw = deltaX * co.yawScale * co.sensitivity
@@ -170,14 +170,12 @@ proc doFlyingCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: 
     (c.forward, c.right, c.up) = c.getLocalDirections()
 
 # ======================================== Models and rasterized scene representation ========================================
-const maxVelocity = 88.8888889
-const gravity = 9.81
-const jumpSpeed = 7.0
-const jumpHeight = 3.5
+const maxVelocity = 88.8888889'f32
+# Quake jumping/gravity values
+const gravity = 24.0'f32
+const jumpImpulse = 8.1'f32
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
-  JumpState = enum
-    Ready, Jumping, Falling
   ColoredVertex* = object
     pos*, color*, normal*: Vec3f
   # TODO: Add models with textures
@@ -198,16 +196,24 @@ type
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
 
+  ColliderTags* = enum
+    LevelGeo, Ground, Ignored
   BoxCollider* = object 
     t*: Transform
     halfExtents*: Vec3f
+    tags*: set[ColliderTags]
+  CollisionResult* = object
+    pushVec*: Vec3f
+    colliderIds*: seq[int]
   Player* = object
     cam*: Camera
     grounded*: bool
-    jump*: JumpState
     jumpStart: float32
     velocity*: Vec3f
     collider*: BoxCollider
+
+proc initCollision(pushVec: Vec3f, colliderIds: seq[int] = @[]): CollisionResult =
+  CollisionResult(pushVec: pushVec, colliderIds: colliderIds)
 
 makeGlObjects(RaiseError, std140Alignment):
   type
@@ -217,6 +223,10 @@ makeGlObjects(RaiseError, std140Alignment):
       constTerm*, linearFalloff*, expFalloff*: GLfloat
       padding: uint32 # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
+
+proc move(p: var Player, moveBy: Vec3f) =
+  p.cam.pos += moveBy
+  p.collider.t.pos += moveBy
 
 proc minPoint(b: BoxCollider): Vec3f = b.t.pos - b.halfExtents
 proc maxPoint(b: BoxCollider): Vec3f = b.t.pos + b.halfExtents
@@ -236,58 +246,81 @@ proc contains(b1, b2: BoxCollider): bool =
     b1Max.z < b2Min.z or b2Max.z < b1Min.z 
   )
 
-proc checkGrounded*(p: var Player, s: Scene) =
-  for i, collider in s.colliders:
-    if p.collider in collider:
-      echo fmt"Colliding with scene collider {i}"
-      p.grounded = true
-      return
-  p.grounded = false
+proc nextafter(x, y: float64): float64 {.importc, header: "<math.h>".}
+proc nextafterf(x, y: float32): float32 {.importc, header: "<math.h>".}
+proc nextUp[T: float | float32](x: T): T = nextafter(x, Inf)
+proc nextDown[T: float | float32](x: T): T = nextafter(x, -Inf)
 
-proc doWalkingPlayerMovement*(p: var Player, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
-  var tChanged = false
-  
+proc getPenetrationVector(b1, b2: BoxCollider): Vec3f =
+  let 
+    overlapX = (b1.halfExtents.x + b2.halfExtents.x) - abs(b1.t.pos.x - b2.t.pos.x)
+    overlapY = (b1.halfExtents.y + b2.halfExtents.y) - abs(b1.t.pos.y - b2.t.pos.y)
+    overlapZ = (b1.halfExtents.z + b2.halfExtents.z) - abs(b1.t.pos.z - b2.t.pos.z)
+  return vec3f(overlapX, overlapY, overlapZ)
+
+proc resolveCollisions(p: var Player, s: Scene): CollisionResult =
+  # NOTE: Double check that the logic for leaving player barely inside the collider 
+  # makes sense. It is probably wrong in some edge case.
+  for i, collider in s.colliders:
+    let pen = p.collider.getPenetrationVector(collider)
+    if pen.x <= 0 - nextDown(pen.x) or pen.y <= 0 - nextDown(pen.y) or
+    pen.z <= 0 - nextDown(pen.z):
+      #if p.collider in collider:
+        #globalLogger.log fmt"Fake colliding with {s.colliders[i]} with pen {pen}"
+      continue
+
+    #globalLogger.log fmt"Colliding with {s.colliders[i]} with pen {pen}"
+    if min([pen.x, pen.y, pen.z]) == pen.x:
+      let signX = sign(p.collider.t.pos.x - collider.t.pos.x)
+      result.pushVec.x += nextDown(pen.x * signX)
+      p.velocity.x = 0
+    elif min([pen.x, pen.y, pen.z]) == pen.y:
+      let signY = sign(p.collider.t.pos.y - collider.t.pos.y)
+      result.pushVec.y += nextDown(pen.y * signY)
+      p.velocity.y = 0
+    else:
+      let signZ = sign(p.collider.t.pos.z - collider.t.pos.z)
+      result.pushVec.z += nextDown(pen.z * signZ)
+      p.velocity.z = 0
+    result.colliderIds.add i
+    p.move result.pushVec
+
+proc doWalkingPlayerMovement*(p: var Player, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
   # Rotation
   if (deltaX, deltaY) != (0.0, 0.0):
     p.cam.rotate(co, deltaX, -deltaY)
-    tChanged = true
 
   # Movement
   if moveDirection.xz != vec2f(0):
     let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
     if moveDirectionPlane != vec3f(0):
-      p.velocity.xz = p.cam.getLocalPlaneMovement(co, moveDirectionPlane, dt).xz
+      p.velocity.xz = p.cam.getLocalPlaneMoveDir(co, moveDirectionPlane).xz
     else:
       p.velocity.xz = vec3f(0).xz
   else:
-    p.velocity = vec3f(0)
+    p.velocity.xz = vec2f(0)
+  
+  # Jumping and gravity
+  if moveDirection.y > 0 and p.grounded:
+    globalLogger.log "Jumping, grounded = false"
+    p.grounded = false
+    p.velocity.y = jumpImpulse
+  p.velocity.y -= gravity * dt
 
-  if not p.grounded and p.jump in {Ready, Falling}:
-    echo "Falling"
-    p.velocity.y -= gravity * dt.float32
-  else:
-    if moveDirection.y > 0 and p.jump in {Ready, Jumping}:
-      echo "Jumping"
-      p.jump = Jumping
-      p.velocity.y = jumpSpeed.float32 * dt.float32
-    elif p.jump == Jumping:
-      echo "Jump canceled/capped"
-      p.velocity.y = 0
-      p.jump = Falling
-    else:
-      echo "Jump reset"
-      p.jump = Ready
-
+  # Apply motion/rotation
   if p.velocity.length() > maxVelocity:
     let velocityNorm = p.velocity.normalize()
-    p.velocity = maxVelocity.float32 * velocityNorm
-  p.cam.pos += p.velocity
-  p.collider.t.pos += p.velocity
-  tChanged = true
+    p.velocity = maxVelocity * velocityNorm
+  p.move p.velocity * dt
 
-  if tChanged:
-    p.cam.updateTransform()
-    (p.cam.forward, p.cam.right, p.cam.up) = p.cam.getLocalDirections()
+  # Resolve collisions by pushing the player outside a collider if inside
+  let collision = p.resolveCollisions(s)
+  if collision.pushVec.y != 0:
+    globalLogger.log "Hit ground, grounded = true"
+    p.grounded = true
+
+  p.cam.updateTransform()
+  (p.cam.forward, p.cam.right, p.cam.up) = p.cam.getLocalDirections()
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)

@@ -22,22 +22,28 @@ iterator range*[N, T](b: CircularBuffer[N, T]; iStart, iEnd: Natural): T =
 # Extend this logging library? It could just write the "terminal status line" in the logs normally when isatty(f) is false.
 # TODO: Handle writing multiple lines between status line updates/writes correctly. Currently the logger probably breaks
 # when printing a lot between status line updates.
+
+const defaultPerfAvgDuration = initDuration(milliseconds = 250)
+
 type Logger* = object
-  file: File
-  perfAvgDuration: Duration = initDuration(milliseconds = 250)
+  file*: File
+  perfAvgDuration*: Duration = defaultPerfAvgDuration
   updateTimes, drawTimes, frameTimes: CircularBuffer[1000, Duration]
   timeSinceLastLog: Duration = initDuration()
   lastLogI: int = 0
   lastStatusLineContent: string = ""
 
+var globalLogger*: Logger
+
 proc clearLine(f: var File) = f.write "\x1b[2K"
 
-proc initLogger*(file: File, perfAvgDuration = Duration.none): Logger =
+proc initLogger*(file: File, perfAvgDuration = defaultPerfAvgDuration): Logger =
   result = Logger(file: file)
-  if perfAvgDuration.isSome:
-    result.perfAvgDuration = perfAvgDuration.get
+  result.perfAvgDuration = perfAvgDuration
+proc initGlobalLogger*(file: File, perfAvgDuration = defaultPerfAvgDuration) = 
+  globalLogger = initLogger(file, perfAvgDuration)
 
-proc writeTerminalStatusLine*(l: var Logger, msg: Option[string] = string.none) = 
+proc writeTerminalStatusLine*(l: var Logger = globalLogger, msg: Option[string] = string.none) = 
   l.file.write '\r'
   l.file.clearLine()
 
@@ -49,7 +55,7 @@ proc writeTerminalStatusLine*(l: var Logger, msg: Option[string] = string.none) 
 
   l.file.flushFile()
 
-proc log*(l: var Logger, msg: string) =
+proc log*(l: var Logger = globalLogger, msg: string) =
   l.file.clearLine()
   l.file.write '\r'
   l.file.writeLine msg
@@ -60,7 +66,7 @@ type PerfStats* = object
   minFrame*, maxFrame*: Duration
   bufferDuration*: Duration
 
-proc getStatsForRange*(l: Logger; startI, endI: Natural): PerfStats =
+proc getStatsForRange*(l: Logger = globalLogger; startI, endI: Natural): PerfStats =
   var count = 0
   var frameTimes: seq[Duration]
   var updateSum, drawSum, frameTimeSum = initDuration()
@@ -83,7 +89,7 @@ proc getStatsForRange*(l: Logger; startI, endI: Natural): PerfStats =
   result.maxFrame = frameTimes[round((count - 1) * 0.95).int]
   result.bufferDuration = frameTimeSum
 
-proc logPerf*(logger: var Logger; update, draw, frame: Duration) =
+proc logPerf*(update, draw, frame: Duration; logger: var Logger = globalLogger) =
   logger.updateTimes.push update
   logger.drawTimes.push draw
   logger.frameTimes.push frame
