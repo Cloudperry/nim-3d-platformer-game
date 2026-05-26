@@ -1,4 +1,5 @@
-import std/[strformat, options, lenientops]
+import std/[strformat, options, lenientops, monotimes, intsets]
+import std/times except `getTime`
 import ./glad/gl
 import pkg/glm
 import GlUtils, Logger
@@ -174,6 +175,7 @@ const maxVelocity = 88.8888889'f32
 # Quake jumping/gravity values
 const gravity = 24.0'f32
 const jumpImpulse = 8.1'f32
+const coyoteTime = initDuration(milliseconds = 50)
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
   ColoredVertex* = object
@@ -207,8 +209,10 @@ type
     colliderIds*: seq[int]
   Player* = object
     cam*: Camera
-    grounded*: bool
-    jumpStart: float32
+    jumping*: bool
+    lastWallTouch*, lastGroundTouch*: MonoTime
+    lastWallTouchDir*: Vec3f
+    lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
     collider*: BoxCollider
 
@@ -285,7 +289,10 @@ proc resolveCollisions(p: var Player, s: Scene): CollisionResult =
     result.colliderIds.add i
     p.move result.pushVec
 
-proc doWalkingPlayerMovement*(p: var Player, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+proc doWalkingPlayerMovement*(
+  p: var Player, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
+  deltaX, deltaY, dt: float, monoTime: MonoTime
+) =
   # Rotation
   if (deltaX, deltaY) != (0.0, 0.0):
     p.cam.rotate(co, deltaX, -deltaY)
@@ -301,10 +308,22 @@ proc doWalkingPlayerMovement*(p: var Player, s: Scene, co: FpCameraOptions, move
     p.velocity.xz = vec2f(0)
   
   # Jumping and gravity
-  if moveDirection.y > 0 and p.grounded:
-    globalLogger.log "Jumping, grounded = false"
-    p.grounded = false
-    p.velocity.y = jumpImpulse
+  if moveDirection.y > 0:
+    if monoTime - p.lastGroundTouch < coyoteTime and not p.jumping:
+      p.jumping = true
+      globalLogger.log "Jumping, grounded = false"
+      p.velocity.y += jumpImpulse
+    elif monoTime - p.lastWallTouch < coyoteTime and len(p.lastTouchedWallColliders * p.lastJumpedWallColliders) == 0:
+      p.lastJumpedWallColliders = p.lastTouchedWallColliders
+      let rotateAxis = cross(vec3f(0, 1, 0), p.lastWallTouchDir)
+      let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
+      let jumpDir = vec4f(p.lastWallTouchDir, 0) * rotateUpMat
+      globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
+      var cancelVelocity = vec3f(1)
+      if p.lastWallTouchDir.x != 0: cancelVelocity.x = 0
+      if p.lastWallTouchDir.y != 0: cancelVelocity.y = 0
+      p.velocity *= cancelVelocity
+      p.velocity += 2 * jumpImpulse * jumpDir.xyz
   p.velocity.y -= gravity * dt
 
   # Apply motion/rotation
@@ -315,9 +334,17 @@ proc doWalkingPlayerMovement*(p: var Player, s: Scene, co: FpCameraOptions, move
 
   # Resolve collisions by pushing the player outside a collider if inside
   let collision = p.resolveCollisions(s)
-  if collision.pushVec.y != 0:
-    globalLogger.log "Hit ground, grounded = true"
-    p.grounded = true
+  if collision.colliderIds.len > 0:
+    let cosPushVec = collision.pushVec.normalize().y
+    if 0.5 <= cosPushVec and cosPushVec <= 1.0: # Can jump from 0-45 degrees slopes
+      p.jumping = false
+      p.lastGroundTouch = monoTime
+      p.lastTouchedWallColliders.clear()
+      p.lastJumpedWallColliders.clear()
+    elif -0.1 <= cosPushVec and cosPushVec < 0.5: # Can walljump from 45 degree slopes and up to vertical walls
+      p.lastWallTouch = monoTime
+      p.lastTouchedWallColliders = collision.colliderIds.toIntSet()
+      p.lastWallTouchDir = collision.pushVec.normalize()
 
   p.cam.updateTransform()
   (p.cam.forward, p.cam.right, p.cam.up) = p.cam.getLocalDirections()

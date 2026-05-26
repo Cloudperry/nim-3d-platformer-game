@@ -39,8 +39,9 @@ type
     vertexShaderText, fragmentShaderText: string
     player: Player
     conf: Config
-  FrameState = object
-    cursorDeltaX, cursorDeltaY, deltaTime: float
+  FrameState* = object
+    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
+    monoTime*: MonoTime
   RasterizerState = object
     # Renderer state and wrapper objects
     shader: ShaderRef
@@ -212,13 +213,14 @@ proc update(win: Window, frame: var FrameState) =
     moveDirection.y -= 1
 
   case state.conf.movementMode
-  of Flying: 
+  of Flying:
     state.player.cam.doFlyingCameraMovement(
       state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
     state.player.doWalkingPlayerMovement(
-      rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
+      rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
+      frame.cursorDeltaY, frame.deltaTime, frame.monoTime
     )
 
 proc uninit() =
@@ -355,6 +357,7 @@ proc main() =
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
+    frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
     
     win.update(frame)
