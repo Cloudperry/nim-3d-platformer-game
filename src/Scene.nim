@@ -171,11 +171,20 @@ proc doFlyingCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: 
     (c.forward, c.right, c.up) = c.getLocalDirections()
 
 # ======================================== Models and rasterized scene representation ========================================
-const maxVelocity = 88.8888889'f32
-# Quake jumping/gravity values
-const gravity = 24.0'f32
-const jumpImpulse = 8.1'f32
-const coyoteTime = initDuration(milliseconds = 50)
+const
+  maxVelocity = 88.8888889'f32
+  # Quake jumping/gravity values. Might be too fast with bhopping.
+  gravity = 24.0'f32
+  jumpForce = 8.1'f32
+  coyoteTime = initDuration(milliseconds = 50)
+  maxRunSpeed = 6.10'f32
+  accelerationScale = 10'f32
+  airAccelerationScale = 10'f32
+  frictionScale = 4'f32
+  stopSpeed = 1.905'f32
+  forwardSpeed = 7.62'f32
+  sideSpeed = 7.62'f32
+
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
   ColoredVertex* = object
@@ -289,6 +298,24 @@ proc resolveCollisions(p: var Player, s: Scene): CollisionResult =
     result.colliderIds.add i
     p.move result.pushVec
 
+proc applyGroundFriction*(p: var Player, dt: float) =
+  let speed = p.velocity.length()
+
+  if speed < 0.05'f32: 
+    p.velocity = vec3f(0)
+  else:
+    let control = if speed < stopSpeed: stopSpeed else: speed
+    let speedLoss = control * frictionScale * dt
+    let newSpeed = max(0.0, speed - speedLoss)
+    p.velocity *= newSpeed / speed
+
+proc accelerate(p: var Player, targetDir: Vec3f, targetSpeed, accel: float32; dt: float) =
+  let speedTowardsTarget = p.velocity.dot(targetDir)
+  let addSpeed = targetSpeed - speedTowardsTarget
+  if addSpeed > 0:
+    let accelSpeed = min(accel * targetSpeed * dt.float32, addSpeed)
+    p.velocity += accelSpeed * targetDir
+
 proc doWalkingPlayerMovement*(
   p: var Player, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
   deltaX, deltaY, dt: float, monoTime: MonoTime
@@ -298,21 +325,24 @@ proc doWalkingPlayerMovement*(
     p.cam.rotate(co, deltaX, -deltaY)
 
   # Movement
-  if moveDirection.xz != vec2f(0):
-    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
-    if moveDirectionPlane != vec3f(0):
-      p.velocity.xz = p.cam.getLocalPlaneMoveDir(co, moveDirectionPlane).xz
-    else:
-      p.velocity.xz = vec3f(0).xz
+  let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
+  # The function getLocalPlane... always returns normalized values. If controller inputs are added,
+  # they are not normalized and they should be normalized right before being used with accelerate.  
+  let targetDir = p.cam.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
+  let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
+
+  if monoTime - p.lastGroundTouch < coyoteTime: # This should probably be a real collision check
+    p.applyGroundFriction(dt)
+    p.accelerate(targetDir, targetSpeed, accelerationScale, dt)
   else:
-    p.velocity.xz = vec2f(0)
+    p.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
   
   # Jumping and gravity
   if moveDirection.y > 0:
     if monoTime - p.lastGroundTouch < coyoteTime and not p.jumping:
       p.jumping = true
-      globalLogger.log "Jumping, grounded = false"
-      p.velocity.y += jumpImpulse
+      globalLogger.log fmt"Jumping at speed {p.velocity.length}, grounded = false"
+      p.velocity.y += jumpForce
     elif monoTime - p.lastWallTouch < coyoteTime and len(p.lastTouchedWallColliders * p.lastJumpedWallColliders) == 0:
       p.lastJumpedWallColliders = p.lastTouchedWallColliders
       let rotateAxis = cross(vec3f(0, 1, 0), p.lastWallTouchDir)
@@ -323,7 +353,7 @@ proc doWalkingPlayerMovement*(
       if p.lastWallTouchDir.x != 0: cancelVelocity.x = 0
       if p.lastWallTouchDir.y != 0: cancelVelocity.y = 0
       p.velocity *= cancelVelocity
-      p.velocity += 2 * jumpImpulse * jumpDir.xyz
+      p.velocity += 2 * jumpForce * jumpDir.xyz
   p.velocity.y -= gravity * dt
 
   # Apply motion/rotation

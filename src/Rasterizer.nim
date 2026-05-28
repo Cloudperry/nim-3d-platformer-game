@@ -107,8 +107,8 @@ proc init(win: Window, useSpirV: bool) =
 
   stdout.initGlobalLogger()
   let
-    ground = makeBox(vec3f(10.0, 0.5, 10.0), shapeColor)
-    wall = makeBox(vec3f(10.0, 7, 1.0), shapeColor)
+    ground = makeBox(vec3f(40.0, 0.5, 40.0), shapeColor)
+    wall = makeBox(vec3f(40.0, 7, 1.0), shapeColor)
     cube = makeBox(vec3f(0.5), shapeColor)
     pyramid = makePyramid(0.5'f32, shapeColor)
     sphere = makeSphere(0.5, 100, 100, shapeColor)
@@ -116,10 +116,10 @@ proc init(win: Window, useSpirV: bool) =
       ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1))
     )
     wallModel = initModel(
-      wall.vertices, wall.indices, transform = Transform(pos: vec3f(0, 1.5, -9), scale: vec3f(1, 1, 1))
+      wall.vertices, wall.indices, transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1, 1, 1))
     )
     groundModelLowerLv = initModel(
-      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -5, 10), scale: vec3f(1, 1, 1))
+      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1, 1, 1))
     )
     roofModel = initModel(
       ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, 5, 0), scale: vec3f(1, 1, 1))
@@ -144,17 +144,17 @@ proc init(win: Window, useSpirV: bool) =
   )
   rasterizer.scene.colliders.add BoxCollider(
     t: Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    halfExtents: vec3f(10, 0.5, 10),
+    halfExtents: vec3f(40, 0.5, 40),
     tags: {Ground}
   )
   rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(0.0, -5.0, 10.0)),
-    halfExtents: vec3f(10, 0.5, 10),
+    t: Transform(pos: vec3f(0.0, -5.0, 40.0)),
+    halfExtents: vec3f(40, 0.5, 40),
     tags: {Ground}
   )
   rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(0.0, 1.5, -9.0)),
-    halfExtents: vec3f(10, 7, 1)
+    t: Transform(pos: vec3f(0.0, 1.5, -39.0)),
+    halfExtents: vec3f(40, 7, 1)
   )
 
   # Compile and link shader and check errors
@@ -306,7 +306,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init
   glfw.initialize()
   var cfg = DefaultOpenglWindowConfig
-  cfg.size = (w: 640, h: 480)
+  cfg.size = (w: 1280, h: 720)
   cfg.title = appDesc
   cfg.resizable = true
   cfg.version = glv46
