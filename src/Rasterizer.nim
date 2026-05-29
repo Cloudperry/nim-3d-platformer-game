@@ -37,7 +37,6 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
-    player: PlayerO
     conf: Config
   FrameState* = object
     cursorDeltaX*, cursorDeltaY*, deltaTime*: float
@@ -50,6 +49,7 @@ type
     elementBuffers: seq[ElementBufferRef]
     vertexArrays: seq[VertexArrayRef]
     scene: Scene[ColoredVertex]
+    playerI: int
     pointLights: ShaderDataBufferRef[seq[PointLight]]
 
 const
@@ -64,15 +64,16 @@ var
 
 proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
-  case state.player.cam.kind
-  of Perspective: state.player.cam.setPerspective(
-    state.player.cam.verticalFov, ratio, state.player.cam.nearClip, state.player.cam.farClip
-  )
-  of Orthographic: state.player.cam.setOrthographic(
-    state.player.cam.frustumLength, ratio, state.player.cam.nearClip, state.player.cam.farClip
-  )
+  if rasterizer.playerI != 0:
+    case rasterizer.scene.entities[rasterizer.playerI].camera.kind:
+    of Perspective: rasterizer.scene.entities[rasterizer.playerI].cameraData.get.setPerspective(
+      rasterizer.scene.entities[rasterizer.playerI].camera.verticalFov, ratio, rasterizer.scene.entities[rasterizer.playerI].camera.nearClip, rasterizer.scene.entities[rasterizer.playerI].camera.farClip
+    )
+    of Orthographic: rasterizer.scene.entities[rasterizer.playerI].cameraData.get.setOrthographic(
+      rasterizer.scene.entities[rasterizer.playerI].camera.frustumLength, ratio, rasterizer.scene.entities[rasterizer.playerI].camera.nearClip, rasterizer.scene.entities[rasterizer.playerI].camera.farClip
+    )
 
-  glViewport(0, 0, width, height)
+    glViewport(0, 0, width, height)
 
 proc makeGlBuffers[T](s: Scene[T]) =
   rasterizer.vertexBuffers.setLen s.models.len
@@ -96,14 +97,6 @@ proc init(win: Window, useSpirV: bool) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
-
-  # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
-  state.cameraOpts = FpCameraOptions()
-  state.cameraOpts.sensitivity = state.conf.mouseSensitivity
-  state.player.cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
-  state.player.cam.pos = vec3f(0, 1, 0)
-  state.player.cam.updateTransform()
-  state.player.collider = BoxCollider(t: Transform(pos: vec3f(0, 1, 0)), halfExtents: vec3f(0.25, 2.0, 0.25))
 
   stdout.initGlobalLogger()
   let
@@ -142,20 +135,34 @@ proc init(win: Window, useSpirV: bool) =
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
   )
-  rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    halfExtents: vec3f(40, 0.5, 40),
-    tags: {Ground}
+  discard rasterizer.scene.addEntity initBoxColliderE(
+    Transform(pos: vec3f(0.0, -2.0, 0.0)),
+    BoxColliderData(
+      halfExtents: vec3f(40, 0.5, 40),
+      tags: {Ground}
+    )
   )
-  rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    halfExtents: vec3f(40, 0.5, 40),
-    tags: {Ground}
+  discard rasterizer.scene.addEntity initBoxColliderE(
+    Transform(pos: vec3f(0.0, -5.0, 40.0)),
+    BoxColliderData(
+      halfExtents: vec3f(40, 0.5, 40),
+      tags: {Ground}
+    )
   )
-  rasterizer.scene.colliders.add BoxCollider(
-    t: Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    halfExtents: vec3f(40, 7, 1)
+  discard rasterizer.scene.addEntity initBoxColliderE(
+    Transform(pos: vec3f(0.0, 1.5, -39.0)),
+    BoxColliderData(halfExtents: vec3f(40, 7, 1))
   )
+
+  # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
+  state.cameraOpts = FpCameraOptions()
+  state.cameraOpts.sensitivity = state.conf.mouseSensitivity
+  var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
+  cam.updateTransform()
+  let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
+  let player = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
+  rasterizer.playerI = rasterizer.scene.addEntity player
+  echo rasterizer.playerI
 
   # Compile and link shader and check errors
   if not useSpirV:
@@ -214,11 +221,11 @@ proc update(win: Window, frame: var FrameState) =
 
   case state.conf.movementMode
   of Flying:
-    state.player.cam.doFlyingCameraMovement(
+    rasterizer.scene.entities[rasterizer.playerI].cameraData.get.doFlyingCameraMovement(
       state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
-    state.player.doWalkingPlayerMovement(
+    rasterizer.scene.entities[rasterizer.playerI].doWalkingPlayerMovement(
       rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
       frame.cursorDeltaY, frame.deltaTime, frame.monoTime
     )
@@ -234,14 +241,14 @@ proc uninit() =
 proc setUniforms(m: Model) =
   rasterizer.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
-proc setUniforms(c: Camera)
+proc setUniforms(c: CameraData)
 proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
   rasterizer.shader.use()
   rasterizer.uniforms.use(rasterizer.shader)
-  state.player.cam.setUniforms()
+  rasterizer.scene.entities[rasterizer.playerI].camera.setUniforms()
 
   for i in 0 .. rasterizer.vertexArrays.high:
     rasterizer.vertexArrays[i].use()
@@ -250,7 +257,7 @@ proc draw(win: Window) =
 
 proc sizeCb(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
 
-proc setUniforms(c: Camera) =
+proc setUniforms(c: CameraData) =
   rasterizer.uniforms.worldToViewMat = c.viewMat
   rasterizer.uniforms.viewToClipMat = c.projectionMat
 

@@ -203,8 +203,9 @@ type
   Scene*[T] = object
     models*: seq[Model[T]]
     entities*: seq[Entity]
+    firstFreeEntitySlot: int
     player*: PlayerData
-    colliders*: seq[BoxColliderData]
+    colliderIds*: seq[int]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
   EntityId* = object
@@ -218,9 +219,11 @@ type
     # Parent/child data could be just one table in Scene that holds information about all entities
     parentIds*: seq[EntityId]
     childIds*: seq[EntityId]
-    playerData: Option[PlayerData]
-    cameraData: Option[CameraData]
-    boxColliderData: Option[BoxColliderData]
+    playerData*: Option[PlayerData]
+    cameraData*: Option[CameraData]
+    boxColliderData*: Option[BoxColliderData]
+    deleted*: bool
+    generation*: int
 
   ColliderTags* = enum
     LevelGeo, Ground, Ignored
@@ -236,7 +239,6 @@ type
     lastWallTouchDir*: Vec3f
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
-    collider*: BoxColliderData
 
 template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]): untyped =
   proc fieldName*(e: Entity): auto =
@@ -253,9 +255,9 @@ addSafeComponentAccessors(boxCollider, boxColliderData, {Player, BoxCollider})
 let rootNode = Entity(kind: Root)
 const rootId = EntityId(id: 0, generation: 0)
 
-proc initPlayerE(t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData): Entity =
+proc initPlayerE*(t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData): Entity =
   Entity(kind: Player, t: t, playerData: some p, cameraData: some c, boxColliderData: some bc, parentIds: @[rootID])
-proc initBoxColliderE(t: Transform, bc: BoxColliderData): Entity =
+proc initBoxColliderE*(t: Transform, bc: BoxColliderData): Entity =
   Entity(kind: BoxCollider, t: t, boxColliderData: some bc, parentIds: @[rootId])
 
 proc initCollision(pushVec: Vec3f, colliderIds: seq[int] = @[]): CollisionResult =
@@ -301,11 +303,12 @@ proc getPenetrationVector(e1, e2: Entity): Vec3f =
     overlapZ = (b1.halfExtents.z + b2.halfExtents.z) - abs(e1.t.pos.z - e2.t.pos.z)
   return vec3f(overlapX, overlapY, overlapZ)
 
-proc resolveCollisions(p: var PlayerData, s: Scene): CollisionResult =
+proc resolveCollisions(e: var Entity, s: Scene): CollisionResult =
   # NOTE: Double check that the logic for leaving player barely inside the collider 
   # makes sense. It is probably wrong in some edge case.
-  for i, collider in s.colliders:
-    let pen = p.collider.getPenetrationVector(collider)
+  for i in s.colliderIds:
+    let collider = s.entities[i]
+    let pen = e.getPenetrationVector(collider)
     if pen.x <= 0 - nextDown(pen.x) or pen.y <= 0 - nextDown(pen.y) or
     pen.z <= 0 - nextDown(pen.z):
       #if p.collider in collider:
@@ -314,19 +317,19 @@ proc resolveCollisions(p: var PlayerData, s: Scene): CollisionResult =
 
     #globalLogger.log fmt"Colliding with {s.colliders[i]} with pen {pen}"
     if min([pen.x, pen.y, pen.z]) == pen.x:
-      let signX = sign(p.collider.t.pos.x - collider.t.pos.x)
+      let signX = sign(e.t.pos.x - collider.t.pos.x)
       result.pushVec.x += nextDown(pen.x * signX)
-      p.velocity.x = 0
+      e.playerData.get.velocity.x = 0
     elif min([pen.x, pen.y, pen.z]) == pen.y:
-      let signY = sign(p.collider.t.pos.y - collider.t.pos.y)
+      let signY = sign(e.t.pos.y - collider.t.pos.y)
       result.pushVec.y += nextDown(pen.y * signY)
-      p.velocity.y = 0
+      e.playerData.get.velocity.y = 0
     else:
-      let signZ = sign(p.collider.t.pos.z - collider.t.pos.z)
+      let signZ = sign(e.t.pos.z - collider.t.pos.z)
       result.pushVec.z += nextDown(pen.z * signZ)
-      p.velocity.z = 0
+      e.playerData.get.velocity.z = 0
     result.colliderIds.add i
-    p.move result.pushVec
+    e.t.pos += result.pushVec
 
 proc applyGroundFriction*(p: var PlayerData, dt: float) =
   let speed = p.velocity.length()
@@ -347,67 +350,67 @@ proc accelerate(p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32
     p.velocity += accelSpeed * targetDir
 
 proc doWalkingPlayerMovement*(
-  p: var PlayerData, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
+  e: var Entity, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
   deltaX, deltaY, dt: float, monoTime: MonoTime
 ) =
   # Rotation
   if (deltaX, deltaY) != (0.0, 0.0):
-    p.cam.rotate(co, deltaX, -deltaY)
+    e.cameraData.get.rotate(co, deltaX, -deltaY)
 
   # Movement
   let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
   # The function getLocalPlane... always returns normalized values. If controller inputs are added,
   # they are not normalized and they should be normalized right before being used with accelerate.  
-  let targetDir = p.cam.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
+  let targetDir = e.cameraData.get.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
   let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
 
-  if monoTime - p.lastGroundTouch < coyoteTime: # This should probably be a real collision check
-    p.applyGroundFriction(dt)
-    p.accelerate(targetDir, targetSpeed, accelerationScale, dt)
+  if monoTime - e.playerData.get.lastGroundTouch < coyoteTime: # This should probably be a real collision check
+    e.playerData.get.applyGroundFriction(dt)
+    e.playerData.get.accelerate(targetDir, targetSpeed, accelerationScale, dt)
   else:
-    p.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
+    e.playerData.get.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
   
   # Jumping and gravity
   if moveDirection.y > 0:
-    if monoTime - p.lastGroundTouch < coyoteTime and not p.jumping:
-      p.jumping = true
-      globalLogger.log fmt"Jumping at speed {p.velocity.length}, grounded = false"
-      p.velocity.y += jumpForce
-    elif monoTime - p.lastWallTouch < coyoteTime and len(p.lastTouchedWallColliders * p.lastJumpedWallColliders) == 0:
-      p.lastJumpedWallColliders = p.lastTouchedWallColliders
-      let rotateAxis = cross(vec3f(0, 1, 0), p.lastWallTouchDir)
+    if monoTime - e.playerData.get.lastGroundTouch < coyoteTime and not e.playerData.get.jumping:
+      e.playerData.get.jumping = true
+      globalLogger.log fmt"Jumping at speed {e.playerData.get.velocity.length}, grounded = false"
+      e.playerData.get.velocity.y += jumpForce
+    elif monoTime - e.playerData.get.lastWallTouch < coyoteTime and len(e.playerData.get.lastTouchedWallColliders * e.playerData.get.lastJumpedWallColliders) == 0:
+      e.playerData.get.lastJumpedWallColliders = e.playerData.get.lastTouchedWallColliders
+      let rotateAxis = cross(vec3f(0, 1, 0), e.playerData.get.lastWallTouchDir)
       let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
-      let jumpDir = vec4f(p.lastWallTouchDir, 0) * rotateUpMat
+      let jumpDir = vec4f(e.playerData.get.lastWallTouchDir, 0) * rotateUpMat
       globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
       var cancelVelocity = vec3f(1)
-      if p.lastWallTouchDir.x != 0: cancelVelocity.x = 0
-      if p.lastWallTouchDir.y != 0: cancelVelocity.y = 0
-      p.velocity *= cancelVelocity
-      p.velocity += 2 * jumpForce * jumpDir.xyz
-  p.velocity.y -= gravity * dt
+      if e.playerData.get.lastWallTouchDir.x != 0: cancelVelocity.x = 0
+      if e.playerData.get.lastWallTouchDir.y != 0: cancelVelocity.y = 0
+      e.playerData.get.velocity *= cancelVelocity
+      e.playerData.get.velocity += 2 * jumpForce * jumpDir.xyz
+  e.playerData.get.velocity.y -= gravity * dt
 
   # Apply motion/rotation
-  if p.velocity.length() > maxVelocity:
-    let velocityNorm = p.velocity.normalize()
-    p.velocity = maxVelocity * velocityNorm
-  p.move p.velocity * dt
+  if e.playerData.get.velocity.length() > maxVelocity:
+    let velocityNorm = e.playerData.get.velocity.normalize()
+    e.playerData.get.velocity = maxVelocity * velocityNorm
+  e.t.pos += e.playerData.get.velocity * dt
 
   # Resolve collisions by pushing the player outside a collider if inside
-  let collision = p.resolveCollisions(s)
+  let collision = e.resolveCollisions(s)
   if collision.colliderIds.len > 0:
     let cosPushVec = collision.pushVec.normalize().y
     if 0.5 <= cosPushVec and cosPushVec <= 1.0: # Can jump from 0-45 degrees slopes
-      p.jumping = false
-      p.lastGroundTouch = monoTime
-      p.lastTouchedWallColliders.clear()
-      p.lastJumpedWallColliders.clear()
+      e.playerData.get.jumping = false
+      e.playerData.get.lastGroundTouch = monoTime
+      e.playerData.get.lastTouchedWallColliders.clear()
+      e.playerData.get.lastJumpedWallColliders.clear()
     elif -0.1 <= cosPushVec and cosPushVec < 0.5: # Can walljump from 45 degree slopes and up to vertical walls
-      p.lastWallTouch = monoTime
-      p.lastTouchedWallColliders = collision.colliderIds.toIntSet()
-      p.lastWallTouchDir = collision.pushVec.normalize()
+      e.playerData.get.lastWallTouch = monoTime
+      e.playerData.get.lastTouchedWallColliders = collision.colliderIds.toIntSet()
+      e.playerData.get.lastWallTouchDir = collision.pushVec.normalize()
 
-  p.cam.updateTransform()
-  (p.cam.forward, p.cam.right, p.cam.up) = p.cam.getLocalDirections()
+  e.cameraData.get.updateTransform()
+  (e.cameraData.get.forward, e.cameraData.get.right, e.cameraData.get.up) = e.cameraData.get.getLocalDirections()
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
@@ -417,7 +420,18 @@ proc initModel*[T](vertices: seq[T], indices: seq[GLuint] = @[], transform = Tra
 
 proc initScene*[T](models: seq[Model[T]] = @[], dirLight = DirectionalLight.none, ambientLight = Vec3f.none): Scene[T] =
   result = Scene[T](models: models)
+  result.entities.add rootNode
   if dirLight.isSome:
     result.dirLight = dirLight.get
   if ambientLight.isSome:
     result.ambientLightColor = ambientLight.get
+
+proc addEntity*(s: var Scene, e: Entity): int =
+  if s.entities.high <= s.firstFreeEntitySlot:
+    s.entities.add e 
+    s.firstFreeEntitySlot += 1
+    s.entities[0].childIds.add EntityId(id: s.entities.high, generation: 0)
+    if e.kind == BoxCollider:
+      s.colliderIds.add s.entities.high
+  
+  return s.entities.high
