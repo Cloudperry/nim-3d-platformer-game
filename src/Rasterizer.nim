@@ -37,7 +37,7 @@ type
     prevCursorX, prevCursorY: float
     # Graphics
     vertexShaderText, fragmentShaderText: string
-    player: Player
+    player: PlayerO
     conf: Config
   FrameState* = object
     cursorDeltaX*, cursorDeltaY*, deltaTime*: float

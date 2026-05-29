@@ -56,7 +56,7 @@ type
     sensitivity*: float = 2
     moveSpeed*: float = 9
     # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
-  Camera* = object
+  CameraData* = object
     pos*: Vec3f
     # Positive yaw means turning left and positive pitch means turning up
     yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
@@ -72,7 +72,7 @@ type
     of Perspective:
       verticalFov*: GLfloat
 
-proc updateProjectionMat*(c: var Camera) =
+proc updateProjectionMat*(c: var CameraData) =
   case c.kind
   of Orthographic:
     let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
@@ -83,13 +83,13 @@ proc updateProjectionMat*(c: var Camera) =
   of Perspective:
     c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
 
-proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): Camera =
-  result = Camera(
+proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): CameraData =
+  result = CameraData(
     kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov,
     nearClip: nearClip, farClip: farClip,
   )
   result.updateProjectionMat()
-proc setPerspective*(c: var Camera, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
+proc setPerspective*(c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
   c.kind = Perspective
   c.verticalFov = verticalFov
   c.aspectRatio = aspectRatio
@@ -97,10 +97,10 @@ proc setPerspective*(c: var Camera, verticalFov, aspectRatio, nearClip, farClip:
   c.farClip = farClip
   c.updateProjectionMat()
 
-proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): Camera =
-  result = Camera(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
+proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): CameraData =
+  result = CameraData(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
   result.updateProjectionMat()
-proc setOrthographic*(c: var Camera, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
+proc setOrthographic*(c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
   c.kind = Orthographic
   c.frustumLength = frustumLength
   c.aspectRatio = aspectRatio
@@ -108,7 +108,7 @@ proc setOrthographic*(c: var Camera, frustumLength, aspectRatio, nearClip, farCl
   c.farClip = farClip
   c.updateProjectionMat()
 
-proc getLocalDirections*(c: Camera): tuple[forward, right, up: Vec3f] =
+proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
   let
     cosPitch = cos(c.pitch)
     sinPitch = sin(c.pitch)
@@ -120,18 +120,18 @@ proc getLocalDirections*(c: Camera): tuple[forward, right, up: Vec3f] =
     up = cross(right, forward)
   return (forward, right, up)
 
-proc getCameraViewMat(c: Camera): Mat4f =
+proc getCameraViewMat(c: CameraData): Mat4f =
   let (forward, _, up) = c.getLocalDirections()
   return lookAt(c.pos, c.pos + forward, up)
-proc updateTransform*(c: var Camera) =
+proc updateTransform*(c: var CameraData) =
   c.viewMat = c.getCameraViewMat()
 
-proc moveLocally*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
+proc moveLocally*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
   let moveBy = moveDirection.normalize() * co.moveSpeed * dt
   let (forward, right, up) = c.getLocalDirections()
   c.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
 
-proc getLocalPlaneMoveDir*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
+proc getLocalPlaneMoveDir*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
   let moveDir = moveDirection.normalize() * co.moveSpeed
   let
     cosYaw = cos(c.yaw + PI / 2)
@@ -140,7 +140,7 @@ proc getLocalPlaneMoveDir*(c: var Camera, co: FpCameraOptions, moveDirection: Ve
     planeRight = cross(planeForward, vec3f(0, 1, 0))
   return moveDir.x * planeRight - moveDir.z * planeForward
 
-proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
+proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
   let deltaYaw = deltaX * co.yawScale * co.sensitivity
   let deltaPitch = deltaY * co.pitchScale * co.sensitivity
 
@@ -153,7 +153,7 @@ proc rotate*(c: var Camera; co: FpCameraOptions, deltaX, deltaY: float) =
   if c.yaw > PI: c.yaw -= 2 * PI
   if c.yaw < -PI: c.yaw += 2 * PI
 
-proc doFlyingCameraMovement*(c: var Camera, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+proc doFlyingCameraMovement*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
   var tChanged = false
   if moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
@@ -202,28 +202,61 @@ type
     color*: Vec3f
   Scene*[T] = object
     models*: seq[Model[T]]
-    player*: Player
-    colliders*: seq[BoxCollider]
+    entities*: seq[Entity]
+    player*: PlayerData
+    colliders*: seq[BoxColliderData]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
+  EntityId* = object
+    id*: int
+    generation*: uint8
+  EntityKind* = enum
+    Root, Base, Player, Camera, BoxCollider
+  Entity* = object
+    kind*: EntityKind
+    t*: Transform
+    # Parent/child data could be just one table in Scene that holds information about all entities
+    parentIds*: seq[EntityId]
+    childIds*: seq[EntityId]
+    playerData: Option[PlayerData]
+    cameraData: Option[CameraData]
+    boxColliderData: Option[BoxColliderData]
 
   ColliderTags* = enum
     LevelGeo, Ground, Ignored
-  BoxCollider* = object 
-    t*: Transform
+  BoxColliderData* = object 
     halfExtents*: Vec3f
-    tags*: set[ColliderTags]
+    tags*: set[ColliderTags] = {LevelGeo}
   CollisionResult* = object
     pushVec*: Vec3f
     colliderIds*: seq[int]
-  Player* = object
-    cam*: Camera
+  PlayerData* = object
     jumping*: bool
     lastWallTouch*, lastGroundTouch*: MonoTime
     lastWallTouchDir*: Vec3f
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
-    collider*: BoxCollider
+    collider*: BoxColliderData
+
+template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]): untyped =
+  proc fieldName*(e: Entity): auto =
+    assert e.kind in allowedKinds, "This entity doesn't have this field"
+    e.hiddenFieldName.get
+  proc `fieldName=`*(e: var Entity, val: auto) =
+    assert e.kind in allowedKinds, "This entity doesn't have this field"
+    e.hiddenFieldName.get = val
+
+addSafeComponentAccessors(player, playerData, {Player})
+addSafeComponentAccessors(camera, cameraData, {Player, Camera})
+addSafeComponentAccessors(boxCollider, boxColliderData, {Player, BoxCollider})
+
+let rootNode = Entity(kind: Root)
+const rootId = EntityId(id: 0, generation: 0)
+
+proc initPlayerE(t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData): Entity =
+  Entity(kind: Player, t: t, playerData: some p, cameraData: some c, boxColliderData: some bc, parentIds: @[rootID])
+proc initBoxColliderE(t: Transform, bc: BoxColliderData): Entity =
+  Entity(kind: BoxCollider, t: t, boxColliderData: some bc, parentIds: @[rootId])
 
 proc initCollision(pushVec: Vec3f, colliderIds: seq[int] = @[]): CollisionResult =
   CollisionResult(pushVec: pushVec, colliderIds: colliderIds)
@@ -237,22 +270,18 @@ makeGlObjects(RaiseError, std140Alignment):
       padding: uint32 # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
-proc move(p: var Player, moveBy: Vec3f) =
-  p.cam.pos += moveBy
-  p.collider.t.pos += moveBy
-
-proc minPoint(b: BoxCollider): Vec3f = b.t.pos - b.halfExtents
-proc maxPoint(b: BoxCollider): Vec3f = b.t.pos + b.halfExtents
-proc contains(b: BoxCollider, p: Vec3f): bool =
-  let hitboxMin = b.minPoint()
-  let hitboxMax = b.maxPoint()
+proc minPoint(e: Entity): Vec3f = e.t.pos - e.boxCollider.halfExtents
+proc maxPoint(e: Entity): Vec3f = e.t.pos + e.boxCollider.halfExtents
+proc contains(e: Entity, p: Vec3f): bool =
+  let hitboxMin = e.minPoint()
+  let hitboxMax = e.maxPoint()
   return p.x in hitboxMin.x .. hitboxMax.x and p.y in hitboxMin.y .. hitboxMax.y and
     p.z in hitboxMin.z .. hitboxMax.z 
-proc contains(b1, b2: BoxCollider): bool =
-  let b1Min = b1.minPoint()
-  let b1Max = b1.maxPoint()
-  let b2Min = b2.minPoint()
-  let b2Max = b2.maxPoint()
+proc contains(e1, e2: Entity): bool =
+  let b1Min = e1.minPoint()
+  let b1Max = e1.maxPoint()
+  let b2Min = e2.minPoint()
+  let b2Max = e2.maxPoint()
   return not (
     b1Max.x < b2Min.x or b2Max.x < b1Min.x or
     b1Max.y < b2Min.y or b2Max.y < b1Min.y or
@@ -264,14 +293,15 @@ proc nextafterf(x, y: float32): float32 {.importc, header: "<math.h>".}
 proc nextUp[T: float | float32](x: T): T = nextafter(x, Inf)
 proc nextDown[T: float | float32](x: T): T = nextafter(x, -Inf)
 
-proc getPenetrationVector(b1, b2: BoxCollider): Vec3f =
+proc getPenetrationVector(e1, e2: Entity): Vec3f =
+  let (b1, b2) = (e1.boxCollider, e2.boxCollider)
   let 
-    overlapX = (b1.halfExtents.x + b2.halfExtents.x) - abs(b1.t.pos.x - b2.t.pos.x)
-    overlapY = (b1.halfExtents.y + b2.halfExtents.y) - abs(b1.t.pos.y - b2.t.pos.y)
-    overlapZ = (b1.halfExtents.z + b2.halfExtents.z) - abs(b1.t.pos.z - b2.t.pos.z)
+    overlapX = (b1.halfExtents.x + b2.halfExtents.x) - abs(e1.t.pos.x - e2.t.pos.x)
+    overlapY = (b1.halfExtents.y + b2.halfExtents.y) - abs(e1.t.pos.y - e2.t.pos.y)
+    overlapZ = (b1.halfExtents.z + b2.halfExtents.z) - abs(e1.t.pos.z - e2.t.pos.z)
   return vec3f(overlapX, overlapY, overlapZ)
 
-proc resolveCollisions(p: var Player, s: Scene): CollisionResult =
+proc resolveCollisions(p: var PlayerData, s: Scene): CollisionResult =
   # NOTE: Double check that the logic for leaving player barely inside the collider 
   # makes sense. It is probably wrong in some edge case.
   for i, collider in s.colliders:
@@ -298,7 +328,7 @@ proc resolveCollisions(p: var Player, s: Scene): CollisionResult =
     result.colliderIds.add i
     p.move result.pushVec
 
-proc applyGroundFriction*(p: var Player, dt: float) =
+proc applyGroundFriction*(p: var PlayerData, dt: float) =
   let speed = p.velocity.length()
 
   if speed < 0.05'f32: 
@@ -309,7 +339,7 @@ proc applyGroundFriction*(p: var Player, dt: float) =
     let newSpeed = max(0.0, speed - speedLoss)
     p.velocity *= newSpeed / speed
 
-proc accelerate(p: var Player, targetDir: Vec3f, targetSpeed, accel: float32; dt: float) =
+proc accelerate(p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32; dt: float) =
   let speedTowardsTarget = p.velocity.dot(targetDir)
   let addSpeed = targetSpeed - speedTowardsTarget
   if addSpeed > 0:
@@ -317,7 +347,7 @@ proc accelerate(p: var Player, targetDir: Vec3f, targetSpeed, accel: float32; dt
     p.velocity += accelSpeed * targetDir
 
 proc doWalkingPlayerMovement*(
-  p: var Player, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
+  p: var PlayerData, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
   deltaX, deltaY, dt: float, monoTime: MonoTime
 ) =
   # Rotation
