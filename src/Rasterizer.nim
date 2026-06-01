@@ -2,8 +2,8 @@ import std/[os, strformat, options, math, monotimes, sequtils, importutils, suga
 import std/times except `getTime`
 import pkg/[glm, glfw, confutils]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
+import ./[GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, Camera, Math]
 import ./glad/gl
-import GlUtils, Slangc, Scene, Logger, Shapes
 
 makeGlObjects(RaiseError, std140Alignment):
   type GpuSceneUniforms = object
