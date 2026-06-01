@@ -1,4 +1,4 @@
-import std/[options]
+import std/[options, tables]
 import pkg/[glm]
 import ./[SceneTypes, GlUtils, Logger]
 import ./glad/gl
@@ -22,7 +22,7 @@ makeGlObjects(RaiseError, std140Alignment):
       # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
 proc initPlayerE*(t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData): Entity =
-  Entity(kind: Player, t: t, playerData: some p, cameraData: some c, boxColliderData: some bc, parentIds: @[rootID])
+  Entity(kind: PlayerController, t: t, playerData: some p, cameraData: some c, boxColliderData: some bc, parentIds: @[rootID])
 proc initBoxColliderE*(t: Transform, bc: BoxColliderData): Entity =
   Entity(kind: BoxCollider, t: t, boxColliderData: some bc, parentIds: @[rootId])
 
@@ -49,3 +49,13 @@ proc addEntity*(s: var Scene, e: Entity): int =
       s.colliderIds.add s.entities.high
   
   return s.entities.high
+
+const components: Table[EntityKind, set[EntityKind]] = {BoxCollider: {BoxCollider}, Camera: {Camera}, Player: {Player}, PlayerController: {BoxCollider, Camera, Player}}.toTable
+proc update*(s: var Scene, e: var Entity) =
+  let entityComponents = components[e.kind]
+  for component in entityComponents:
+    case component
+    of Player:
+      discard
+    of BoxCollider, Camera:
+      discard

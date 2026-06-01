@@ -45,7 +45,7 @@ type
     id*: int
     generation*: uint8
   EntityKind* = enum
-    Root, Base, Player, Camera, BoxCollider
+    Root, Base, Player, Camera, BoxCollider, PlayerController
   Entity* = object
     kind*: EntityKind
     t*: Transform
@@ -79,8 +79,8 @@ template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped,
   template `fieldName=`*(e: var Entity, val: untyped) =
     assert e.kind in allowedKinds and e.hiddenFieldName.isSome, "Entity of type " & $e.kind & " doesn't have the field " & astToStr(hiddenFieldName)
     e.hiddenFieldName.get = val
-addSafeComponentAccessors(player, playerData, {Player})
-addSafeComponentAccessors(camera, cameraData, {Player, Camera})
-addSafeComponentAccessors(boxCollider, boxColliderData, {Player, BoxCollider})
+addSafeComponentAccessors(player, playerData, {PlayerController})
+addSafeComponentAccessors(camera, cameraData, {PlayerController, Camera})
+addSafeComponentAccessors(boxCollider, boxColliderData, {PlayerController, BoxCollider})
 let rootNode* = Entity(kind: Root)
 const rootId* = EntityId(id: 0, generation: 0)

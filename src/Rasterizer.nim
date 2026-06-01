@@ -26,23 +26,16 @@ type
       name: "movementMode", defaultValue: Flying, desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)" .}: MovementMode
     mouseSensitivity {. 
       name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity" .}: float
-  RendererMode = enum
-    Rasterizer, SdfRenderer
-  EngineState = object
+  State = object
+    conf: Config
     # Window/input
     fullscreen: bool
     monitor: Monitor
     prevWinProps: tuple[x, y, w, h, refreshRate: int]
     cameraOpts: FpCameraOptions
     prevCursorX, prevCursorY: float
-    # Graphics
-    vertexShaderText, fragmentShaderText: string
-    conf: Config
-  FrameState* = object
-    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
-    monoTime*: MonoTime
-  RasterizerState = object
     # Renderer state and wrapper objects
+    vertexShaderText, fragmentShaderText: string
     shader: ShaderRef
     uniforms: ShaderDataBufferRef[GpuSceneUniforms]
     vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
@@ -51,6 +44,9 @@ type
     scene: Scene[ColoredVertex]
     playerI: int
     pointLights: ShaderDataBufferRef[seq[PointLight]]
+  FrameState* = object
+    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
+    monoTime*: MonoTime
 
 const
   shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
@@ -59,13 +55,12 @@ const
   appName = "NimFpsGame"
 
 var
-  state = EngineState()
-  rasterizer = RasterizerState()
+  state = State()
 
 proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
-  if rasterizer.playerI != 0:
-    template c: untyped = rasterizer.scene.entities[rasterizer.playerI].camera
+  if state.playerI != 0:
+    template c: untyped = state.scene.entities[state.playerI].camera
     case c.kind:
     of Perspective: c.setPerspective(c.verticalFov, ratio, c.nearClip, c.farClip)
     of Orthographic: c.setOrthographic(c.frustumLength, ratio, c.nearClip, c.farClip)
@@ -73,22 +68,22 @@ proc updateCameraAspect(win: Window; width, height: int) =
     glViewport(0, 0, width, height)
 
 proc makeGlBuffers[T](s: Scene[T]) =
-  rasterizer.vertexBuffers.setLen s.models.len
-  rasterizer.elementBuffers.setLen s.models.len
-  rasterizer.vertexArrays.setLen s.models.len
+  state.vertexBuffers.setLen s.models.len
+  state.elementBuffers.setLen s.models.len
+  state.vertexArrays.setLen s.models.len
 
   for i, model in s.models:
-    rasterizer.vertexBuffers[i] = initVertexBuffer (model.vertices, GL_STATIC_DRAW).some
-    rasterizer.elementBuffers[i] = initElementBuffer (model.indices, GL_STATIC_DRAW).some
-    rasterizer.vertexArrays[i] = initVertexArray()
-    rasterizer.vertexArrays[i].use()
-    rasterizer.vertexBuffers[i].use()
-    rasterizer.vertexArrays[i].attachElementBuffer(rasterizer.elementBuffers[i])
+    state.vertexBuffers[i] = initVertexBuffer (model.vertices, GL_STATIC_DRAW).some
+    state.elementBuffers[i] = initElementBuffer (model.indices, GL_STATIC_DRAW).some
+    state.vertexArrays[i] = initVertexArray()
+    state.vertexArrays[i].use()
+    state.vertexBuffers[i].use()
+    state.vertexArrays[i].attachElementBuffer(state.elementBuffers[i])
 
 proc setSceneUniforms[T](s: Scene[T]) =
-  rasterizer.uniforms.mainLightDirection = s.dirLight.direction
-  rasterizer.uniforms.mainLightColor = s.dirLight.color
-  rasterizer.uniforms.ambientLightColor = s.ambientLightColor
+  state.uniforms.mainLightDirection = s.dirLight.direction
+  state.uniforms.mainLightColor = s.dirLight.color
+  state.uniforms.ambientLightColor = s.ambientLightColor
 
 proc init(win: Window, useSpirV: bool) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
@@ -127,26 +122,26 @@ proc init(win: Window, useSpirV: bool) =
   let (width, height) = glfw.framebufferSize(win)
   win.updateCameraAspect(width, height)
 
-  rasterizer.scene = initScene(
+  state.scene = initScene(
     @[groundModel, wallModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel, sphereModel],
     DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
     vec3f(0.1).some
   )
-  discard rasterizer.scene.addEntity initBoxColliderE(
+  discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -2.0, 0.0)),
     BoxColliderData(
       halfExtents: vec3f(40, 0.5, 40),
       tags: {Ground}
     )
   )
-  discard rasterizer.scene.addEntity initBoxColliderE(
+  discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -5.0, 40.0)),
     BoxColliderData(
       halfExtents: vec3f(40, 0.5, 40),
       tags: {Ground}
     )
   )
-  discard rasterizer.scene.addEntity initBoxColliderE(
+  discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, 1.5, -39.0)),
     BoxColliderData(halfExtents: vec3f(40, 7, 1))
   )
@@ -158,33 +153,33 @@ proc init(win: Window, useSpirV: bool) =
   let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
   var player = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
   player.updateTransform()
-  rasterizer.playerI = rasterizer.scene.addEntity player
+  state.playerI = state.scene.addEntity player
 
   # Compile and link shader and check errors
   if not useSpirV:
-    rasterizer.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
+    state.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
   else:
-    rasterizer.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
+    state.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
-  rasterizer.uniforms = initShaderDataBuffer[GpuSceneUniforms](rasterizer.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  state.uniforms = initShaderDataBuffer[GpuSceneUniforms](state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
 
   # Set up OpenGL buffers for passing vertex data to shaders
-  rasterizer.scene.makeGlBuffers()
-  rasterizer.scene.setSceneUniforms()
-  rasterizer.pointLights = initShaderDataBuffer[seq[PointLight]](rasterizer.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
-  rasterizer.pointLights.add PointLight(
+  state.scene.makeGlBuffers()
+  state.scene.setSceneUniforms()
+  state.pointLights = initShaderDataBuffer[seq[PointLight]](state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
+  state.pointLights.add PointLight(
     position: vec3f(3, 0, 3), color: vec3f(0.8, 0.4, 0),
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
-  rasterizer.pointLights.add PointLight(
+  state.pointLights.add PointLight(
     position: vec3f(-3, 0, 3), color: vec3f(0, 0.5, 0.7),
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
-  rasterizer.pointLights.add PointLight(
+  state.pointLights.add PointLight(
     position: vec3f(0, 0, -5), color: vec3f(0.4, 0.4, 0.4),
     constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
   )
-  rasterizer.pointLights.upload()
+  state.pointLights.upload()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
@@ -215,7 +210,7 @@ proc update(win: Window, frame: var FrameState) =
   elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
     moveDirection.y -= 1
 
-  template p: untyped = rasterizer.scene.entities[rasterizer.playerI]
+  template p: untyped = state.scene.entities[state.playerI]
   case state.conf.movementMode
   of Flying:
     p.doFlyingCameraMovement(
@@ -223,40 +218,40 @@ proc update(win: Window, frame: var FrameState) =
     )
   of Walking:
     p.doWalkingPlayerMovement(
-      rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
+      state.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
       frame.cursorDeltaY, frame.deltaTime, frame.monoTime
     )
 
 proc uninit() =
-  for i in 0 .. rasterizer.vertexArrays.high:
-    rasterizer.vertexBuffers[i].cleanup()
-    rasterizer.elementBuffers[i].cleanup()
-    rasterizer.vertexArrays[i].cleanup()
-  rasterizer.uniforms.cleanup()
-  rasterizer.shader.cleanup()
+  for i in 0 .. state.vertexArrays.high:
+    state.vertexBuffers[i].cleanup()
+    state.elementBuffers[i].cleanup()
+    state.vertexArrays[i].cleanup()
+  state.uniforms.cleanup()
+  state.shader.cleanup()
 
 proc setUniforms(m: Model) =
-  rasterizer.uniforms.modelToWorldMat = m.transform.getTransformMat()
+  state.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
 proc setUniforms(c: CameraData)
 proc draw(win: Window) =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
-  rasterizer.shader.use()
-  rasterizer.uniforms.use(rasterizer.shader)
-  rasterizer.scene.entities[rasterizer.playerI].camera.setUniforms()
+  state.shader.use()
+  state.uniforms.use(state.shader)
+  state.scene.entities[state.playerI].camera.setUniforms()
 
-  for i in 0 .. rasterizer.vertexArrays.high:
-    rasterizer.vertexArrays[i].use()
-    rasterizer.scene.models[i].setUniforms()
-    glDrawElements(GL_TRIANGLES, rasterizer.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
+  for i in 0 .. state.vertexArrays.high:
+    state.vertexArrays[i].use()
+    state.scene.models[i].setUniforms()
+    glDrawElements(GL_TRIANGLES, state.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
 
 proc sizeCb(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
 
 proc setUniforms(c: CameraData) =
-  rasterizer.uniforms.worldToViewMat = c.viewMat
-  rasterizer.uniforms.viewToClipMat = c.projectionMat
+  state.uniforms.worldToViewMat = c.viewMat
+  state.uniforms.viewToClipMat = c.projectionMat
 
 proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
   if key == keyEscape and action == kaDown:
