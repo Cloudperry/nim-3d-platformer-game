@@ -12,6 +12,14 @@ type
     rotation*: Vec3f
   ProjectionKind* = enum
     Orthographic, Perspective
+  FpCameraOptions* = object
+    # Pitch/yaw scaling to match Source engine. In this engine,
+    # transforms use radian rotations so Source engine constants need to be scaled.
+    pitchScale*: float = 0.022 * degToRad 
+    yawScale*: float = 0.022 * degToRad
+    sensitivity*: float = 2
+    moveSpeed*: float = 9
+    # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
   CameraData* = object
     # Positive yaw means turning left and positive pitch means turning up
     yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
@@ -65,12 +73,20 @@ type
   CollisionResult* = object
     pushVec*: Vec3f
     colliderIds*: seq[int]
+  MovementMode* = enum
+    Flying, Walking
   PlayerData* = object
+    mode*: MovementMode
+    cameraOpts*: FpCameraOptions
     jumping*: bool
     lastWallTouch*, lastGroundTouch*: MonoTime
     lastWallTouchDir*: Vec3f
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
+  FrameState* = object
+    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
+    moveDirection*: Vec3f
+    monoTime*: MonoTime
 
 template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]): untyped =
   template fieldName*(e: Entity): untyped =

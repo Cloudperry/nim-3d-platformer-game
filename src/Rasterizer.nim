@@ -15,8 +15,6 @@ makeGlObjects(RaiseError, std140Alignment):
     ambientLightColor: Vec3f
 
 type
-  MovementMode = enum
-    Flying, Walking
   Config = object
     useSpirv {. 
       name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL" .}: bool
@@ -32,7 +30,6 @@ type
     fullscreen: bool
     monitor: Monitor
     prevWinProps: tuple[x, y, w, h, refreshRate: int]
-    cameraOpts: FpCameraOptions
     prevCursorX, prevCursorY: float
     # Renderer state and wrapper objects
     vertexShaderText, fragmentShaderText: string
@@ -44,9 +41,6 @@ type
     scene: Scene[ColoredVertex]
     playerI: int
     pointLights: ShaderDataBufferRef[seq[PointLight]]
-  FrameState* = object
-    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
-    monoTime*: MonoTime
 
 const
   shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
@@ -147,13 +141,16 @@ proc init(win: Window, useSpirV: bool) =
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
-  state.cameraOpts = FpCameraOptions()
-  state.cameraOpts.sensitivity = state.conf.mouseSensitivity
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
   let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
-  var player = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
-  player.updateTransform()
-  state.playerI = state.scene.addEntity player
+  var playerE = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
+
+  playerE.updateTransform()
+  playerE.player.mode = state.conf.movementMode
+  playerE.player.cameraOpts = FpCameraOptions()
+  playerE.player.cameraOpts.sensitivity = state.conf.mouseSensitivity
+
+  state.playerI = state.scene.addEntity playerE
 
   # Compile and link shader and check errors
   if not useSpirV:
@@ -196,31 +193,22 @@ proc update(win: Window, frame: var FrameState) =
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
   # Keyboard input
-  var moveDirection = vec3f(0)
+  frame.moveDirection = vec3f(0)
   if win.isKeyDown(keyComma) or win.isKeyDown(keyW):
-    moveDirection.z -= 1
+    frame.moveDirection.z -= 1
   elif win.isKeyDown(keyO) or win.isKeyDown(keyS):
-    moveDirection.z += 1
+    frame.moveDirection.z += 1
   if win.isKeyDown(keyE) or win.isKeyDown(keyD):
-    moveDirection.x += 1
+    frame.moveDirection.x += 1
   elif win.isKeyDown(keyA):
-    moveDirection.x -= 1
+    frame.moveDirection.x -= 1
   if win.isKeyDown(keySpace):
-    moveDirection.y += 1
+    frame.moveDirection.y += 1
   elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
-    moveDirection.y -= 1
+    frame.moveDirection.y -= 1
 
   template p: untyped = state.scene.entities[state.playerI]
-  case state.conf.movementMode
-  of Flying:
-    p.doFlyingCameraMovement(
-      state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-    )
-  of Walking:
-    p.doWalkingPlayerMovement(
-      state.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
-      frame.cursorDeltaY, frame.deltaTime, frame.monoTime
-    )
+  state.scene.update(frame, p.player.cameraOpts)
 
 proc uninit() =
   for i in 0 .. state.vertexArrays.high:

@@ -3,16 +3,6 @@ import pkg/[glm]
 import ./glad/gl
 import ./[SceneTypes, Logger]
 
-type
-  FpCameraOptions* = object
-    # Pitch/yaw scaling to match Source engine. In this engine,
-    # transforms use radian rotations so Source engine constants need to be scaled.
-    pitchScale*: float = 0.022 * degToRad 
-    yawScale*: float = 0.022 * degToRad
-    sensitivity*: float = 2
-    moveSpeed*: float = 9
-    # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
-
 proc perspectiveRH*[T](fovy, aspect, zNear, zFar:T): Mat4[T] =
   let tanHalfFovy = tan(fovy / T(2))
   result = mat4[T](0.0)
@@ -72,16 +62,16 @@ proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
   return (forward, right, up)
 
 proc updateTransform*(e: var Entity) =
-  let (forward, _, up) = e.camera.getLocalDirections()
-  e.camera.viewMat = lookAt(e.t.pos, e.t.pos + forward, up)
+  (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()
+  e.camera.viewMat = lookAt(e.t.pos, e.t.pos + e.camera.forward, e.camera.up)
 
 proc moveLocally*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
   let moveBy = moveDirection.normalize() * co.moveSpeed * dt
   let (forward, right, up) = e.camera.getLocalDirections()
   e.t.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
 
-proc getLocalPlaneMoveDir*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
-  let moveDir = moveDirection.normalize() * co.moveSpeed
+proc getLocalPlaneMoveDir*(c: var CameraData, moveDirection: Vec3f): Vec3f =
+  let moveDir = moveDirection.normalize()
   let
     cosYaw = cos(c.yaw + PI / 2)
     sinYaw = sin(c.yaw + PI / 2)
@@ -102,19 +92,16 @@ proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
   if c.yaw > PI: c.yaw -= 2 * PI
   if c.yaw < -PI: c.yaw += 2 * PI
 
+proc doCameraRotation*(e: var Entity; deltaX, deltaY: float; co: FpCameraOptions) =
+  if (deltaX, deltaY) != (0.0, 0.0):
+    e.camera.rotate(co, deltaX, -deltaY)
+    e.updateTransform()
+
 proc doFlyingCameraMovement*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
-  var tChanged = false
   if moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
     let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
     if moveDirectionPlane != vec3f(0):
       e.moveLocally(co, moveDirectionPlane, dt)
-    e.t.pos.y += moveDirection.y * co.moveSpeed * dt 
-    tChanged = true
-  if (deltaX, deltaY) != (0.0, 0.0):
-    e.camera.rotate(co, deltaX, -deltaY)
-    tChanged = true
-
-  if tChanged:
+    e.t.pos.y += moveDirection.y * co.moveSpeed * dt
     e.updateTransform()
-    (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()

@@ -35,14 +35,11 @@ proc accelerate(p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32
     p.velocity += accelSpeed * targetDir
 
 proc doWalkingPlayerMovement*(
-  e: var Entity, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
-  deltaX, deltaY, dt: float, monoTime: MonoTime
+  e: var Entity, s: Scene, moveDirection: Vec3f, 
+  dt: float, monoTime: MonoTime
 ) =
-  if (deltaX, deltaY) != (0.0, 0.0):
-    e.camera.rotate(co, deltaX, -deltaY)
-
   let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
-  let targetDir = e.camera.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
+  let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
   let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
 
   if monoTime - e.player.lastGroundTouch < coyoteTime:
