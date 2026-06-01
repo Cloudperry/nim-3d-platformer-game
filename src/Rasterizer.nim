@@ -65,13 +65,10 @@ var
 proc updateCameraAspect(win: Window; width, height: int) =
   var ratio = width / height
   if rasterizer.playerI != 0:
-    case rasterizer.scene.entities[rasterizer.playerI].camera.kind:
-    of Perspective: rasterizer.scene.entities[rasterizer.playerI].cameraData.get.setPerspective(
-      rasterizer.scene.entities[rasterizer.playerI].camera.verticalFov, ratio, rasterizer.scene.entities[rasterizer.playerI].camera.nearClip, rasterizer.scene.entities[rasterizer.playerI].camera.farClip
-    )
-    of Orthographic: rasterizer.scene.entities[rasterizer.playerI].cameraData.get.setOrthographic(
-      rasterizer.scene.entities[rasterizer.playerI].camera.frustumLength, ratio, rasterizer.scene.entities[rasterizer.playerI].camera.nearClip, rasterizer.scene.entities[rasterizer.playerI].camera.farClip
-    )
+    template c: untyped = rasterizer.scene.entities[rasterizer.playerI].camera
+    case c.kind:
+    of Perspective: c.setPerspective(c.verticalFov, ratio, c.nearClip, c.farClip)
+    of Orthographic: c.setOrthographic(c.frustumLength, ratio, c.nearClip, c.farClip)
 
     glViewport(0, 0, width, height)
 
@@ -158,11 +155,10 @@ proc init(win: Window, useSpirV: bool) =
   state.cameraOpts = FpCameraOptions()
   state.cameraOpts.sensitivity = state.conf.mouseSensitivity
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
-  cam.updateTransform()
   let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
-  let player = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
+  var player = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
+  player.updateTransform()
   rasterizer.playerI = rasterizer.scene.addEntity player
-  echo rasterizer.playerI
 
   # Compile and link shader and check errors
   if not useSpirV:
@@ -219,13 +215,14 @@ proc update(win: Window, frame: var FrameState) =
   elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
     moveDirection.y -= 1
 
+  template p: untyped = rasterizer.scene.entities[rasterizer.playerI]
   case state.conf.movementMode
   of Flying:
-    rasterizer.scene.entities[rasterizer.playerI].cameraData.get.doFlyingCameraMovement(
+    p.doFlyingCameraMovement(
       state.cameraOpts, moveDirection, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
-    rasterizer.scene.entities[rasterizer.playerI].doWalkingPlayerMovement(
+    p.doWalkingPlayerMovement(
       rasterizer.scene, state.cameraOpts, moveDirection, frame.cursorDeltaX,
       frame.cursorDeltaY, frame.deltaTime, frame.monoTime
     )

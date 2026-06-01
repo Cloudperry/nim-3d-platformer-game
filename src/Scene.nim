@@ -33,143 +33,6 @@ proc getTransformMat*(t: Transform): Mat4f =
   translateMat[3, 2] = t.pos.z
   return translateMat * rotateMat * scaleMat
 
-proc perspectiveRH*[T](fovy, aspect, zNear, zFar:T): Mat4[T] =
-  let tanHalfFovy = tan(fovy / T(2))
-  result = mat4[T](0.0)
-  result[0,0] = -T(1) / (aspect * tanHalfFovy)
-  result[1,1] = -T(1) / (tanHalfFovy)
-  result[2,3] = T(-1)
-
-  result[2,2] = -(zFar + zNear) / (zFar - zNear)
-  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
-
-# ======================================== Camera/player handling ========================================
-
-type
-  ProjectionKind* = enum
-    Orthographic, Perspective
-  FpCameraOptions* = object
-    # Pitch/yaw scaling to match Source engine. In this engine,
-    # transforms use radian rotations so Source engine constants need to be scaled.
-    pitchScale*: float = 0.022 * degToRad 
-    yawScale*: float = 0.022 * degToRad
-    sensitivity*: float = 2
-    moveSpeed*: float = 9
-    # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
-  CameraData* = object
-    pos*: Vec3f
-    # Positive yaw means turning left and positive pitch means turning up
-    yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
-    pitch*: GLfloat = 0
-    viewMat*, projectionMat*: Mat4f
-    aspectRatio*, nearClip*, farClip*: GLfloat
-    forward*: Vec3f = vec3f(0, 0, -1)
-    right*: Vec3f = vec3f(1, 0, 0)
-    up*: Vec3f = vec3f(0, 1, 0)
-    case kind*: ProjectionKind
-    of Orthographic:
-      frustumLength*: GLfloat
-    of Perspective:
-      verticalFov*: GLfloat
-
-proc updateProjectionMat*(c: var CameraData) =
-  case c.kind
-  of Orthographic:
-    let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
-    c.projectionMat = ortho[GLfloat](
-      -frustumW / 2, frustumW / 2,
-      -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
-    )
-  of Perspective:
-    c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
-
-proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): CameraData =
-  result = CameraData(
-    kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov,
-    nearClip: nearClip, farClip: farClip,
-  )
-  result.updateProjectionMat()
-proc setPerspective*(c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
-  c.kind = Perspective
-  c.verticalFov = verticalFov
-  c.aspectRatio = aspectRatio
-  c.nearClip = nearClip
-  c.farClip = farClip
-  c.updateProjectionMat()
-
-proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): CameraData =
-  result = CameraData(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
-  result.updateProjectionMat()
-proc setOrthographic*(c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
-  c.kind = Orthographic
-  c.frustumLength = frustumLength
-  c.aspectRatio = aspectRatio
-  c.nearClip = nearClip
-  c.farClip = farClip
-  c.updateProjectionMat()
-
-proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
-  let
-    cosPitch = cos(c.pitch)
-    sinPitch = sin(c.pitch)
-    # Make camera look forward (-Z) when yaw is 0
-    cosYaw = cos(c.yaw + PI / 2)
-    sinYaw = sin(c.yaw + PI / 2)
-    forward = vec3f(cosPitch * -cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
-    right = cross(forward, vec3f(0, 1, 0))
-    up = cross(right, forward)
-  return (forward, right, up)
-
-proc getCameraViewMat(c: CameraData): Mat4f =
-  let (forward, _, up) = c.getLocalDirections()
-  return lookAt(c.pos, c.pos + forward, up)
-proc updateTransform*(c: var CameraData) =
-  c.viewMat = c.getCameraViewMat()
-
-proc moveLocally*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
-  let moveBy = moveDirection.normalize() * co.moveSpeed * dt
-  let (forward, right, up) = c.getLocalDirections()
-  c.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
-
-proc getLocalPlaneMoveDir*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
-  let moveDir = moveDirection.normalize() * co.moveSpeed
-  let
-    cosYaw = cos(c.yaw + PI / 2)
-    sinYaw = sin(c.yaw + PI / 2)
-    planeForward = vec3f(-cosYaw, 0, -sinYaw).normalize()
-    planeRight = cross(planeForward, vec3f(0, 1, 0))
-  return moveDir.x * planeRight - moveDir.z * planeForward
-
-proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
-  let deltaYaw = deltaX * co.yawScale * co.sensitivity
-  let deltaPitch = deltaY * co.pitchScale * co.sensitivity
-
-  c.yaw += deltaYaw
-  c.pitch += deltaPitch
-
-  # Prevent vertical flipping
-  c.pitch = c.pitch.clamp(-PI / 2 + PI / 256, PI / 2 - PI / 256)
-  # Keep yaw in -180 .. 180 degrees
-  if c.yaw > PI: c.yaw -= 2 * PI
-  if c.yaw < -PI: c.yaw += 2 * PI
-
-proc doFlyingCameraMovement*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
-  var tChanged = false
-  if moveDirection != vec3f(0):
-    # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
-    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
-    if moveDirectionPlane != vec3f(0):
-      c.moveLocally(co, moveDirectionPlane, dt)
-    c.pos.y += moveDirection.y * co.moveSpeed * dt 
-    tChanged = true
-  if (deltaX, deltaY) != (0.0, 0.0):
-    c.rotate(co, deltaX, -deltaY)
-    tChanged = true
-
-  if tChanged:
-    c.updateTransform()
-    (c.forward, c.right, c.up) = c.getLocalDirections()
-
 # ======================================== Models and rasterized scene representation ========================================
 const
   maxVelocity = 88.8888889'f32
@@ -187,6 +50,31 @@ const
 
 # TODO: Proper DAG-based scene graph with model hierarchies
 type 
+  ProjectionKind* = enum
+    Orthographic, Perspective
+  FpCameraOptions* = object
+    # Pitch/yaw scaling to match Source engine. In this engine,
+    # transforms use radian rotations so Source engine constants need to be scaled.
+    pitchScale*: float = 0.022 * degToRad 
+    yawScale*: float = 0.022 * degToRad
+    sensitivity*: float = 2
+    moveSpeed*: float = 9
+    # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
+  CameraData* = object
+    # Positive yaw means turning left and positive pitch means turning up
+    yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
+    pitch*: GLfloat = 0
+    viewMat*, projectionMat*: Mat4f
+    aspectRatio*, nearClip*, farClip*: GLfloat
+    forward*: Vec3f = vec3f(0, 0, -1)
+    right*: Vec3f = vec3f(1, 0, 0)
+    up*: Vec3f = vec3f(0, 1, 0)
+    case kind*: ProjectionKind
+    of Orthographic:
+      frustumLength*: GLfloat
+    of Perspective:
+      verticalFov*: GLfloat
+
   ColoredVertex* = object
     pos*, color*, normal*: Vec3f
   # TODO: Add models with textures
@@ -241,11 +129,11 @@ type
     velocity*: Vec3f
 
 template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]): untyped =
-  proc fieldName*(e: Entity): auto =
-    assert e.kind in allowedKinds, "This entity doesn't have this field"
+  template fieldName*(e: Entity): untyped =
+    assert e.kind in allowedKinds and e.hiddenFieldName.isSome, "Entity of type " & $e.kind & " doesn't have the field " & astToStr(hiddenFieldName)
     e.hiddenFieldName.get
-  proc `fieldName=`*(e: var Entity, val: auto) =
-    assert e.kind in allowedKinds, "This entity doesn't have this field"
+  template `fieldName=`*(e: var Entity, val: untyped) =
+    assert e.kind in allowedKinds and e.hiddenFieldName.isSome, "Entity of type " & $e.kind & " doesn't have the field " & astToStr(hiddenFieldName)
     e.hiddenFieldName.get = val
 
 addSafeComponentAccessors(player, playerData, {Player})
@@ -319,15 +207,15 @@ proc resolveCollisions(e: var Entity, s: Scene): CollisionResult =
     if min([pen.x, pen.y, pen.z]) == pen.x:
       let signX = sign(e.t.pos.x - collider.t.pos.x)
       result.pushVec.x += nextDown(pen.x * signX)
-      e.playerData.get.velocity.x = 0
+      e.player.velocity.x = 0
     elif min([pen.x, pen.y, pen.z]) == pen.y:
       let signY = sign(e.t.pos.y - collider.t.pos.y)
       result.pushVec.y += nextDown(pen.y * signY)
-      e.playerData.get.velocity.y = 0
+      e.player.velocity.y = 0
     else:
       let signZ = sign(e.t.pos.z - collider.t.pos.z)
       result.pushVec.z += nextDown(pen.z * signZ)
-      e.playerData.get.velocity.z = 0
+      e.player.velocity.z = 0
     result.colliderIds.add i
     e.t.pos += result.pushVec
 
@@ -353,64 +241,57 @@ proc doWalkingPlayerMovement*(
   e: var Entity, s: Scene, co: FpCameraOptions, moveDirection: Vec3f; 
   deltaX, deltaY, dt: float, monoTime: MonoTime
 ) =
-  # Rotation
   if (deltaX, deltaY) != (0.0, 0.0):
-    e.cameraData.get.rotate(co, deltaX, -deltaY)
+    e.camera.rotate(co, deltaX, -deltaY)
 
-  # Movement
   let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
-  # The function getLocalPlane... always returns normalized values. If controller inputs are added,
-  # they are not normalized and they should be normalized right before being used with accelerate.  
-  let targetDir = e.cameraData.get.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
+  let targetDir = e.camera.getLocalPlaneMoveDir(co, moveDirectionPlane).normalize()
   let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
 
-  if monoTime - e.playerData.get.lastGroundTouch < coyoteTime: # This should probably be a real collision check
-    e.playerData.get.applyGroundFriction(dt)
-    e.playerData.get.accelerate(targetDir, targetSpeed, accelerationScale, dt)
+  if monoTime - e.player.lastGroundTouch < coyoteTime:
+    e.player.applyGroundFriction(dt)
+    e.player.accelerate(targetDir, targetSpeed, accelerationScale, dt)
   else:
-    e.playerData.get.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
+    e.player.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
   
-  # Jumping and gravity
   if moveDirection.y > 0:
-    if monoTime - e.playerData.get.lastGroundTouch < coyoteTime and not e.playerData.get.jumping:
-      e.playerData.get.jumping = true
-      globalLogger.log fmt"Jumping at speed {e.playerData.get.velocity.length}, grounded = false"
-      e.playerData.get.velocity.y += jumpForce
-    elif monoTime - e.playerData.get.lastWallTouch < coyoteTime and len(e.playerData.get.lastTouchedWallColliders * e.playerData.get.lastJumpedWallColliders) == 0:
-      e.playerData.get.lastJumpedWallColliders = e.playerData.get.lastTouchedWallColliders
-      let rotateAxis = cross(vec3f(0, 1, 0), e.playerData.get.lastWallTouchDir)
+    if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
+      e.player.jumping = true
+      globalLogger.log fmt"Jumping at speed {e.player.velocity.length}, grounded = false"
+      e.player.velocity.y += jumpForce
+    elif monoTime - e.player.lastWallTouch < coyoteTime and len(e.player.lastTouchedWallColliders * e.player.lastJumpedWallColliders) == 0:
+      e.player.lastJumpedWallColliders = e.player.lastTouchedWallColliders
+      let rotateAxis = cross(vec3f(0, 1, 0), e.player.lastWallTouchDir)
       let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
-      let jumpDir = vec4f(e.playerData.get.lastWallTouchDir, 0) * rotateUpMat
+      let jumpDir = vec4f(e.player.lastWallTouchDir, 0) * rotateUpMat
       globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
       var cancelVelocity = vec3f(1)
-      if e.playerData.get.lastWallTouchDir.x != 0: cancelVelocity.x = 0
-      if e.playerData.get.lastWallTouchDir.y != 0: cancelVelocity.y = 0
-      e.playerData.get.velocity *= cancelVelocity
-      e.playerData.get.velocity += 2 * jumpForce * jumpDir.xyz
-  e.playerData.get.velocity.y -= gravity * dt
+      if e.player.lastWallTouchDir.x != 0: cancelVelocity.x = 0
+      if e.player.lastWallTouchDir.y != 0: cancelVelocity.y = 0
+      e.player.velocity *= cancelVelocity
+      e.player.velocity += 2 * jumpForce * jumpDir.xyz
+  e.player.velocity.y -= gravity * dt
 
-  # Apply motion/rotation
-  if e.playerData.get.velocity.length() > maxVelocity:
-    let velocityNorm = e.playerData.get.velocity.normalize()
-    e.playerData.get.velocity = maxVelocity * velocityNorm
-  e.t.pos += e.playerData.get.velocity * dt
+  if e.player.velocity.length() > maxVelocity:
+    let velocityNorm = e.player.velocity.normalize()
+    e.player.velocity = maxVelocity * velocityNorm
+  e.t.pos += e.player.velocity * dt
 
-  # Resolve collisions by pushing the player outside a collider if inside
   let collision = e.resolveCollisions(s)
   if collision.colliderIds.len > 0:
     let cosPushVec = collision.pushVec.normalize().y
-    if 0.5 <= cosPushVec and cosPushVec <= 1.0: # Can jump from 0-45 degrees slopes
-      e.playerData.get.jumping = false
-      e.playerData.get.lastGroundTouch = monoTime
-      e.playerData.get.lastTouchedWallColliders.clear()
-      e.playerData.get.lastJumpedWallColliders.clear()
-    elif -0.1 <= cosPushVec and cosPushVec < 0.5: # Can walljump from 45 degree slopes and up to vertical walls
-      e.playerData.get.lastWallTouch = monoTime
-      e.playerData.get.lastTouchedWallColliders = collision.colliderIds.toIntSet()
-      e.playerData.get.lastWallTouchDir = collision.pushVec.normalize()
+    if 0.5 <= cosPushVec and cosPushVec <= 1.0:
+      e.player.jumping = false
+      e.player.lastGroundTouch = monoTime
+      e.player.lastTouchedWallColliders.clear()
+      e.player.lastJumpedWallColliders.clear()
+    elif -0.1 <= cosPushVec and cosPushVec < 0.5:
+      e.player.lastWallTouch = monoTime
+      e.player.lastTouchedWallColliders = collision.colliderIds.toIntSet()
+      e.player.lastWallTouchDir = collision.pushVec.normalize()
 
-  e.cameraData.get.updateTransform()
-  (e.cameraData.get.forward, e.cameraData.get.right, e.cameraData.get.up) = e.cameraData.get.getLocalDirections()
+  e.updateTransform() # writes correct viewMat into e.camera
+  (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex = ColoredVertex(pos: pos, color: color, normal: normal)
 proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex = TexturedVertex(pos: pos, uv: uv, normal: normal)
@@ -435,3 +316,119 @@ proc addEntity*(s: var Scene, e: Entity): int =
       s.colliderIds.add s.entities.high
   
   return s.entities.high
+
+proc perspectiveRH*[T](fovy, aspect, zNear, zFar:T): Mat4[T] =
+  let tanHalfFovy = tan(fovy / T(2))
+  result = mat4[T](0.0)
+  result[0,0] = -T(1) / (aspect * tanHalfFovy)
+  result[1,1] = -T(1) / (tanHalfFovy)
+  result[2,3] = T(-1)
+
+  result[2,2] = -(zFar + zNear) / (zFar - zNear)
+  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
+
+proc updateProjectionMat*(c: var CameraData) =
+  case c.kind
+  of Orthographic:
+    let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
+    c.projectionMat = ortho[GLfloat](
+      -frustumW / 2, frustumW / 2,
+      -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
+    )
+  of Perspective:
+    c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
+
+proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): CameraData =
+  result = CameraData(
+    kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov,
+    nearClip: nearClip, farClip: farClip,
+  )
+  result.updateProjectionMat()
+proc setPerspective*(c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
+  c.kind = Perspective
+  c.verticalFov = verticalFov
+  c.aspectRatio = aspectRatio
+  c.nearClip = nearClip
+  c.farClip = farClip
+  c.updateProjectionMat()
+
+proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): CameraData =
+  result = CameraData(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
+  result.updateProjectionMat()
+proc setOrthographic*(c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
+  c.kind = Orthographic
+  c.frustumLength = frustumLength
+  c.aspectRatio = aspectRatio
+  c.nearClip = nearClip
+  c.farClip = farClip
+  c.updateProjectionMat()
+
+proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
+  let
+    cosPitch = cos(c.pitch)
+    sinPitch = sin(c.pitch)
+    # Make camera look forward (-Z) when yaw is 0
+    cosYaw = cos(c.yaw + PI / 2)
+    sinYaw = sin(c.yaw + PI / 2)
+    forward = vec3f(cosPitch * -cosYaw, sinPitch, cosPitch * -sinYaw).normalize()
+    right = cross(forward, vec3f(0, 1, 0))
+    up = cross(right, forward)
+  return (forward, right, up)
+
+proc getCameraViewMat(e: Entity): Mat4f =
+  let c = e.camera
+  let (forward, _, up) = c.getLocalDirections()
+  return lookAt(e.t.pos, e.t.pos + forward, up)
+proc updateTransform*(e: var Entity) =
+  var c = e.camera
+  c.viewMat = e.getCameraViewMat()
+  globalLogger.log &"Camera view mat:\n{c.viewMat}"
+  e.camera = c
+
+proc moveLocally*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
+  let moveBy = moveDirection.normalize() * co.moveSpeed * dt
+  let (forward, right, up) = e.camera.getLocalDirections()
+  e.t.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
+
+proc getLocalPlaneMoveDir*(c: var CameraData, co: FpCameraOptions, moveDirection: Vec3f): Vec3f =
+  let moveDir = moveDirection.normalize() * co.moveSpeed
+  let
+    cosYaw = cos(c.yaw + PI / 2)
+    sinYaw = sin(c.yaw + PI / 2)
+    planeForward = vec3f(-cosYaw, 0, -sinYaw).normalize()
+    planeRight = cross(planeForward, vec3f(0, 1, 0))
+  return moveDir.x * planeRight - moveDir.z * planeForward
+
+proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
+  let deltaYaw = deltaX * co.yawScale * co.sensitivity
+  let deltaPitch = deltaY * co.pitchScale * co.sensitivity
+
+  c.yaw += deltaYaw
+  c.pitch += deltaPitch
+
+  # Prevent vertical flipping
+  c.pitch = c.pitch.clamp(-PI / 2 + PI / 256, PI / 2 - PI / 256)
+  # Keep yaw in -180 .. 180 degrees
+  if c.yaw > PI: c.yaw -= 2 * PI
+  if c.yaw < -PI: c.yaw += 2 * PI
+
+proc doFlyingCameraMovement*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+  var tChanged = false
+  if moveDirection != vec3f(0):
+    # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
+    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
+    if moveDirectionPlane != vec3f(0):
+      e.moveLocally(co, moveDirectionPlane, dt)
+    e.t.pos.y += moveDirection.y * co.moveSpeed * dt 
+    tChanged = true
+  if (deltaX, deltaY) != (0.0, 0.0):
+    var c = e.camera
+    c.rotate(co, deltaX, -deltaY)
+    e.camera = c
+    tChanged = true
+
+  if tChanged:
+    e.updateTransform()
+    var c = e.camera
+    (c.forward, c.right, c.up) = c.getLocalDirections()
+    e.camera = c
