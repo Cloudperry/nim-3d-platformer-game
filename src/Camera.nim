@@ -71,14 +71,9 @@ proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
     up = cross(right, forward)
   return (forward, right, up)
 
-proc getCameraViewMat(e: Entity): Mat4f =
-  let c = e.camera
-  let (forward, _, up) = c.getLocalDirections()
-  return lookAt(e.t.pos, e.t.pos + forward, up)
 proc updateTransform*(e: var Entity) =
-  var c = e.camera
-  c.viewMat = e.getCameraViewMat()
-  e.camera = c
+  let (forward, _, up) = e.camera.getLocalDirections()
+  e.camera.viewMat = lookAt(e.t.pos, e.t.pos + forward, up)
 
 proc moveLocally*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, dt: float) =
   let moveBy = moveDirection.normalize() * co.moveSpeed * dt
@@ -117,13 +112,9 @@ proc doFlyingCameraMovement*(e: var Entity, co: FpCameraOptions, moveDirection: 
     e.t.pos.y += moveDirection.y * co.moveSpeed * dt 
     tChanged = true
   if (deltaX, deltaY) != (0.0, 0.0):
-    var c = e.camera
-    c.rotate(co, deltaX, -deltaY)
-    e.camera = c
+    e.camera.rotate(co, deltaX, -deltaY)
     tChanged = true
 
   if tChanged:
     e.updateTransform()
-    var c = e.camera
-    (c.forward, c.right, c.up) = c.getLocalDirections()
-    e.camera = c
+    (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()
