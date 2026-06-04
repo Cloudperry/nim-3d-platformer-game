@@ -107,10 +107,10 @@ type
     lastWallTouchDir*: Vec3f
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
+    moveDirection*: Vec3f
 
   FrameState* = object
     cursorDeltaX*, cursorDeltaY*, deltaTime*: float
-    moveDirection*: Vec3f
     monoTime*: MonoTime
 
 template addSafeComponentAccessors(

@@ -25,7 +25,7 @@ proc updateProjectionMat*(c: var CameraData) =
       perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
 
 proc initPerspectiveCamera*(
-    verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool
+    verticalFov, aspectRatio, nearClip, farClip: GLfloat
 ): CameraData =
   result = CameraData(
     kind: Perspective,
@@ -35,16 +35,6 @@ proc initPerspectiveCamera*(
     farClip: farClip,
   )
   result.updateProjectionMat()
-
-proc setPerspective*(
-    c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat
-) =
-  c.kind = Perspective
-  c.verticalFov = verticalFov
-  c.aspectRatio = aspectRatio
-  c.nearClip = nearClip
-  c.farClip = farClip
-  c.updateProjectionMat()
 
 proc initOrthographicCamera*(
     frustumLength, aspectRatio, nearClip, farClip: GLfloat
@@ -57,16 +47,6 @@ proc initOrthographicCamera*(
     farClip: farClip,
   )
   result.updateProjectionMat()
-
-proc setOrthographic*(
-    c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat
-) =
-  c.kind = Orthographic
-  c.frustumLength = frustumLength
-  c.aspectRatio = aspectRatio
-  c.nearClip = nearClip
-  c.farClip = farClip
-  c.updateProjectionMat()
 
 proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
   let

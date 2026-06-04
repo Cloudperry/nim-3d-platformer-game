@@ -1,8 +1,13 @@
-import std/[os, strformat, options, math, monotimes, sequtils, importutils, sugar]
+import
+  std/[os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables]
 import std/times except `getTime`
 import pkg/[glm, glfw, confutils]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
-import ./[GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, Camera, Math]
+import
+  ./[
+    GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
+    Math, Input,
+  ]
 import ./glad/gl
 
 makeGlObjects(RaiseError, std140Alignment):
@@ -51,25 +56,72 @@ type
     playerI: int
     pointLights: ShaderDataBufferRef[seq[PointLight]]
 
+  ActionNames = enum
+    MoveFwd
+    MoveBack
+    MoveLeft
+    MoveRight
+    Jump
+    FlyDown
+
 const
   shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
   appDesc = "Nim OpenGL FPS game"
   appName = "NimFpsGame"
+  inputsToActions: InputsToActions[ActionNames, Key] = {
+    keyComma: MoveFwd,
+    keyW: MoveFwd,
+    keyO: MoveBack,
+    keyS: MoveBack,
+    keyE: MoveRight,
+    keyD: MoveRight,
+    keyA: MoveLeft,
+    keySpace: Jump,
+    keyBackslash: FlyDown,
+    keyLeftShift: FlyDown,
+  }.toTable
 
 var state = State()
+
+template cam(): untyped =
+  state.scene.entities[state.playerI].camera
+
+template player(): untyped =
+  state.scene.entities[state.playerI].player
+
+let actions: Actions[ActionNames] = {
+  MoveFwd: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.z -= 1
+  ),
+  MoveBack: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.z += 1
+  ),
+  MoveLeft: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.x -= 1
+  ),
+  MoveRight: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.x += 1
+  ),
+  Jump: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.y += 1
+  ),
+  FlyDown: initBoolAction(
+    proc(pressed: bool) =
+      player.moveDirection.y -= 1
+  ),
+}.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
   var ratio = width / height
   if state.playerI != 0:
-    template c(): untyped =
-      state.scene.entities[state.playerI].camera
-
-    case c.kind
-    of Perspective:
-      c.setPerspective(c.verticalFov, ratio, c.nearClip, c.farClip)
-    of Orthographic:
-      c.setOrthographic(c.frustumLength, ratio, c.nearClip, c.farClip)
+    cam.aspectRatio = ratio
+    cam.updateProjectionMat()
 
     glViewport(0, 0, width, height)
 
@@ -166,7 +218,7 @@ proc init(win: Window, useSpirV: bool) =
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
-  var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100, true)
+  var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
   let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
   var playerE = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
 
@@ -225,31 +277,21 @@ proc init(win: Window, useSpirV: bool) =
   glEnable(GL_DEPTH_TEST)
   glDepthFunc(GL_LESS)
 
-proc update(win: Window, frame: var FrameState) =
+template update() =
   let cursorPos = win.cursorPos
   (frame.cursorDeltaX, frame.cursorDeltaY) =
     (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
-  # Keyboard input
-  frame.moveDirection = vec3f(0)
-  if win.isKeyDown(keyComma) or win.isKeyDown(keyW):
-    frame.moveDirection.z -= 1
-  elif win.isKeyDown(keyO) or win.isKeyDown(keyS):
-    frame.moveDirection.z += 1
-  if win.isKeyDown(keyE) or win.isKeyDown(keyD):
-    frame.moveDirection.x += 1
-  elif win.isKeyDown(keyA):
-    frame.moveDirection.x -= 1
-  if win.isKeyDown(keySpace):
-    frame.moveDirection.y += 1
-  elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
-    frame.moveDirection.y -= 1
+  state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
+  addInputReader(
+    inputsToActions,
+    actions,
+    proc(k: Key): bool =
+      win.isKeyDown(k),
+  )
 
-  template p(): untyped =
-    state.scene.entities[state.playerI]
-
-  state.scene.update(frame, p.player.cameraOpts)
+  state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
 proc uninit() =
   for i in 0 .. state.vertexArrays.high:
@@ -263,7 +305,7 @@ proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
 proc setUniforms(c: CameraData)
-proc draw(win: Window) =
+template draw() =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
@@ -398,10 +440,9 @@ proc main() =
   var (win, cfg) = initGlfwAndGlad()
   win.init(state.conf.useSpirV)
 
-  var frame = FrameState()
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
-    frame = FrameState()
+    var frame = FrameState()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime =
@@ -409,9 +450,9 @@ proc main() =
     frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
 
-    win.update(frame)
+    update()
     let updateEnd = getMonoTime()
-    win.draw()
+    draw()
     glfw.swapBuffers(win)
 
     let currFrameEnd = getMonoTime()

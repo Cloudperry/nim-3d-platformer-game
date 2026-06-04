@@ -1,6 +1,6 @@
 import std/[options, tables]
 import pkg/[glm]
-import ./[SceneTypes, PlayerController, GlUtils, Logger]
+import ./[SceneTypes, PlayerController, CameraController, GlUtils, Logger]
 import ./glad/gl
 export SceneTypes
 
@@ -70,6 +70,20 @@ proc addEntity*(s: var Scene, e: Entity): int =
 
   return s.entities.high
 
+proc updatePlayer(e: var Entity, s: Scene, frame: FrameState, co: FpCameraOptions) =
+  let player = e.player
+  # Camera rotation
+  e.doCameraRotation(frame.cursorDeltaX, frame.cursorDeltaY, co)
+  # Player movement
+  case player.mode
+  of Flying:
+    e.doFlyingCameraMovement(
+      player.cameraOpts, player.moveDirection, frame.cursorDeltaX, frame.cursorDeltaY,
+      frame.deltaTime,
+    )
+  of Walking:
+    e.doWalkingPlayerMovement(s, player.moveDirection, frame.deltaTime, frame.monoTime)
+
 const components: Table[EntityKind, set[EntityKind]] = {
   BoxCollider: {BoxCollider},
   Camera: {Camera},
@@ -84,18 +98,6 @@ proc update*(s: var Scene, frame: FrameState, co: FpCameraOptions) =
     for component in entityComponents:
       case component
       of Player:
-        # Camera rotation
-        e.doCameraRotation(frame.cursorDeltaX, frame.cursorDeltaY, co)
-        # Player movement
-        case e.player.mode
-        of Flying:
-          e.doFlyingCameraMovement(
-            e.player.cameraOpts, frame.moveDirection, frame.cursorDeltaX,
-            frame.cursorDeltaY, frame.deltaTime,
-          )
-        of Walking:
-          e.doWalkingPlayerMovement(
-            s, frame.moveDirection, frame.deltaTime, frame.monoTime
-          )
+        e.updatePlayer(s, frame, co)
       of Root, Base, BoxCollider, Camera, EntityKind.PlayerController:
         discard
