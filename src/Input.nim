@@ -32,10 +32,11 @@ type
 
   # TODO: Add input contexts that can be switched to have different keybinds available (e.g. menu, in-game)
   Actions*[T: enum] = Table[T, Action]
-  RecordedAction[T: enum] = object
+  RecordedAction*[T: enum] = object
     tickN*: uint64
     inputs*: ActionInputs
     actionName*: T
+  ReplayBuffer*[T: enum] = CircularBuffer[512, RecordedAction[T]]
 
 proc initReplayBuffer[T: enum](
     actionNames: typedesc[T]
@@ -90,14 +91,14 @@ proc addRecordingInputReader*[A: enum, I, T](
     iToA: InputsToActions[A, I],
     actions: Actions[A],
     reader: proc(inputName: I): T,
-    replayBuffer: var CircularBuffer[512, RecordedAction[T]],
+    replayBuffer: var ReplayBuffer[A],
     tickN: uint64,
 ) =
   for inputName, actionName in iToA.pairs:
     if actionName in actions:
       let input = reader(inputName).wrapInput()
       let takenAction =
-        RecordedAction(actionName: actionName, inputs: input, tickN: tickN)
+        RecordedAction[A](actionName: actionName, inputs: input, tickN: tickN)
       actions.run(actionName, input)
       replayBuffer.push takenAction
 

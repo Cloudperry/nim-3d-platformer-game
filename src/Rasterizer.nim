@@ -1,12 +1,12 @@
 import
   std/[os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables]
 import std/times except `getTime`
-import pkg/[glm, glfw, confutils]
+import pkg/[glm, glfw, confutils, flatty]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
     GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes,
+    Math, Input, TestScenes, Containers
   ]
 import ./glad/gl
 
@@ -37,6 +37,22 @@ type
     mouseSensitivity {.
       name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity"
     .}: float
+    recordInputs {.
+      name: "recordInputs", defaultValue: true, desc: "Record a replay buffer from player inputs"
+    .}: bool
+    showReplay {.
+      name: "showReplay", defaultValue: false, desc: "Play back a saved replay"
+    .}: bool
+
+
+  ActionNames = enum
+    MoveFwd
+    MoveBack
+    MoveLeft
+    MoveRight
+    Jump
+    FlyDown,
+    PrintReplayBuf
 
   State = object
     conf: Config
@@ -55,14 +71,7 @@ type
     scene: Scene[ColoredVertex]
     playerI: int
     frameCount: uint64
-
-  ActionNames = enum
-    MoveFwd
-    MoveBack
-    MoveLeft
-    MoveRight
-    Jump
-    FlyDown
+    replayBuffer: ReplayBuffer[ActionNames]
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
@@ -79,6 +88,7 @@ const
     keySpace: Jump,
     keyBackslash: FlyDown,
     keyLeftShift: FlyDown,
+    keyP: PrintReplayBuf
   }.toTable
 
 var state = State()
@@ -114,6 +124,10 @@ let actions: Actions[ActionNames] = {
     proc(pressed: bool) =
       player.moveDirection.y -= 1
   ),
+  PrintReplayBuf: initBoolAction(
+    proc(pressed: bool) =
+      globalLogger.log fmt"Replay buffer: {state.replayBuffer}"
+  )
 }.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
@@ -194,11 +208,27 @@ template update() =
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
   state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
-  addInputReader(
-    inputsToActions,
-    actions,
-    proc(k: Key): bool =
-      win.isKeyDown(k),
+  if state.conf.recordInputs:
+    addRecordingInputReader(
+      inputsToActions,
+      actions,
+      proc(k: Key): bool =
+        win.isKeyDown(k),
+      state.replayBuffer,
+      state.frameCount
+    )
+    if state.replayBuffer.i == 0:
+      var replayBufBytes: string
+      replayBufBytes.toFlatty(state.replayBuffer)
+      let f = open("replay.bin", fmAppend)
+      f.write(replayBufBytes)
+      f.close()
+  else:
+    addInputReader(
+      inputsToActions,
+      actions,
+      proc(k: Key): bool =
+        win.isKeyDown(k),
   )
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
