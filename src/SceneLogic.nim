@@ -13,15 +13,6 @@ type
     pos*, normal*: Vec3f
     uv*: Vec2f
 
-makeGlObjects(RaiseError, std140Alignment):
-  type PointLight* = object
-    position*: Vec3f
-    color*: Vec3f
-    constTerm*, linearFalloff*, expFalloff*: GLfloat
-    padding: uint32
-      # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
-    # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
-
 proc initPlayerE*(
     t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData
 ): Entity =

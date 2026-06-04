@@ -1,5 +1,6 @@
 import std/[tables]
 import pkg/[glm]
+import ./Containers
 
 type
   ActionKind = enum
@@ -31,6 +32,15 @@ type
 
   # TODO: Add input contexts that can be switched to have different keybinds available (e.g. menu, in-game)
   Actions*[T: enum] = Table[T, Action]
+  RecordedAction[T: enum] = object
+    tickN*: uint64
+    inputs*: ActionInputs
+    actionName*: T
+
+proc initReplayBuffer[T: enum](
+    actionNames: typedesc[T]
+): array[512, RecordedAction[T]] =
+  result.default
 
 proc wrapInput[T](val: T): ActionInputs =
   when T is bool:
@@ -54,6 +64,9 @@ proc run(action: Action, i: ActionInputs) =
     if not action.runOnlyWhenNonZero or i.vec2Val != Vec2f.default:
       action.vec2Fn(i.vec2Val)
 
+proc run[T: enum](actions: Actions[T], actionName: T, i: ActionInputs) =
+  actions[actionName].run(i)
+
 proc initBoolAction*(fn: BoolActionFn, runOnlyWhenNonZero = true): Action =
   Action(kind: BoolAction, boolFn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
@@ -71,7 +84,22 @@ proc addInputReader*[A: enum, I, T](
   for inputName, actionName in iToA.pairs:
     if actionName in actions:
       let input = reader(inputName).wrapInput()
-      actions[actionName].run(input)
+      actions.run(actionName, input)
+
+proc addRecordingInputReader*[A: enum, I, T](
+    iToA: InputsToActions[A, I],
+    actions: Actions[A],
+    reader: proc(inputName: I): T,
+    replayBuffer: var CircularBuffer[512, RecordedAction[T]],
+    tickN: uint64,
+) =
+  for inputName, actionName in iToA.pairs:
+    if actionName in actions:
+      let input = reader(inputName).wrapInput()
+      let takenAction =
+        RecordedAction(actionName: actionName, inputs: input, tickN: tickN)
+      actions.run(actionName, input)
+      replayBuffer.push takenAction
 
 when isMainModule:
   proc testAction(active: bool) =

@@ -49,6 +49,16 @@ type
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
 
+makeGlObjects(RaiseError, std140Alignment):
+  type PointLight* = object
+    position*: Vec3f
+    color*: Vec3f
+    constTerm*, linearFalloff*, expFalloff*: GLfloat
+    padding: uint32
+      # Padding to take the size (as std140) up to 48 bytes. For storing inside UBO array.
+    # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
+
+type
   Scene*[T] = object
     models*: seq[Model[T]]
     entities*: seq[Entity]
@@ -57,6 +67,7 @@ type
     colliderIds*: seq[int]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
+    pointLights*: ShaderDataBufferRef[seq[PointLight]]
 
   EntityId* = object
     id*: int
