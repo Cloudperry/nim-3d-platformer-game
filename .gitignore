@@ -1,8 +1,10 @@
 # Ignore binaries (all files without extension or .exe extension)
 *
-*.exe
 !*.*
+*.exe
 !*/
+# Don't ignore binaries (scripts) under .githooks
+!.githooks/*
 
 # Ignore Slang generated shader files
 *.glsl

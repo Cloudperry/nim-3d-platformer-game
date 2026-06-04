@@ -33,7 +33,7 @@ proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
   # Down
   for vert in [botRightFront, botLeftFront, botLeftBack, botRightBack]:
     vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, -1, 0))
-  
+
   var indices: seq[int]
   for base in countup(0, 23, 4):
     indices.add base
@@ -47,10 +47,10 @@ proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
 
 proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
   let apex = vec3f(0, halfSizeLen, 0)
-  let botLeftFront  = vec3f(-halfSizeLen, -halfSizeLen,  halfSizeLen)
-  let botRightFront = vec3f( halfSizeLen, -halfSizeLen,  halfSizeLen)
-  let botRightBack  = vec3f( halfSizeLen, -halfSizeLen, -halfSizeLen)
-  let botLeftBack   = vec3f(-halfSizeLen, -halfSizeLen, -halfSizeLen)
+  let botLeftFront = vec3f(-halfSizeLen, -halfSizeLen, halfSizeLen)
+  let botRightFront = vec3f(halfSizeLen, -halfSizeLen, halfSizeLen)
+  let botRightBack = vec3f(halfSizeLen, -halfSizeLen, -halfSizeLen)
+  let botLeftBack = vec3f(-halfSizeLen, -halfSizeLen, -halfSizeLen)
 
   var vertices: seq[ColoredVertex]
   # Base
@@ -58,16 +58,24 @@ proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
     vertices.add ColoredVertex(pos: vert, color: color, normal: vec3f(0, -1, 0))
   # Front
   for vert in [apex, botLeftFront, botRightFront]:
-    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0, 0.5, 0.5)))
+    vertices.add ColoredVertex(
+      pos: vert, color: color, normal: normalize(vec3f(0, 0.5, 0.5))
+    )
   # Back
   for vert in [apex, botRightBack, botLeftBack]:
-    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0, 0.5, -0.5)))
+    vertices.add ColoredVertex(
+      pos: vert, color: color, normal: normalize(vec3f(0, 0.5, -0.5))
+    )
   # Right
   for vert in [apex, botRightFront, botRightBack]:
-    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(0.5, 0.5, 0)))
+    vertices.add ColoredVertex(
+      pos: vert, color: color, normal: normalize(vec3f(0.5, 0.5, 0))
+    )
   # Left
   for vert in [apex, botLeftBack, botLeftFront]:
-    vertices.add ColoredVertex(pos: vert, color: color, normal: normalize(vec3f(-0.5, 0.5, 0)))
+    vertices.add ColoredVertex(
+      pos: vert, color: color, normal: normalize(vec3f(-0.5, 0.5, 0))
+    )
 
   var indices: seq[int]
   # Base quad
@@ -78,26 +86,26 @@ proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
 
   return (vertices: vertices, indices: indices)
 
-proc makeSphere*(radius: float; slices, stacks: int; color: Vec3f): SimpleModel =
+proc makeSphere*(radius: float, slices, stacks: int, color: Vec3f): SimpleModel =
   var vertices: seq[ColoredVertex]
   var indices: seq[int]
 
-  for stack in 0..stacks:
-    let phi = PI * float32(stack) / float32(stacks)         # 0..π
+  for stack in 0 .. stacks:
+    let phi = PI * float32(stack) / float32(stacks) # 0..π
     let y = cos(phi)
     let r = sin(phi)
-    for slice in 0..slices:
+    for slice in 0 .. slices:
       let theta = 2.0f32 * PI * float32(slice) / float32(slices) # 0..2π
       let x = r * cos(theta)
       let z = r * sin(theta)
 
       let pos = vec3f(x * radius, y * radius, z * radius)
-      let normal = normalize(vec3f(x, y, z))    # outward normal
+      let normal = normalize(vec3f(x, y, z)) # outward normal
       vertices.add(ColoredVertex(pos: pos, color: color, normal: normal))
 
   for stack in 0 ..< stacks:
     for slice in 0 ..< slices:
-      let first  = stack * (slices + 1) + slice
+      let first = stack * (slices + 1) + slice
       let second = first + slices + 1
 
       indices.add(first)

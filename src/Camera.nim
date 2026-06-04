@@ -3,34 +3,42 @@ import pkg/[glm]
 import ./glad/gl
 import ./[SceneTypes, Logger]
 
-proc perspectiveRH*[T](fovy, aspect, zNear, zFar:T): Mat4[T] =
+proc perspectiveRH*[T](fovy, aspect, zNear, zFar: T): Mat4[T] =
   let tanHalfFovy = tan(fovy / T(2))
   result = mat4[T](0.0)
-  result[0,0] = -T(1) / (aspect * tanHalfFovy)
-  result[1,1] = -T(1) / (tanHalfFovy)
-  result[2,3] = T(-1)
+  result[0, 0] = -T(1) / (aspect * tanHalfFovy)
+  result[1, 1] = -T(1) / (tanHalfFovy)
+  result[2, 3] = T(-1)
 
-  result[2,2] = -(zFar + zNear) / (zFar - zNear)
-  result[3,2] = -(T(2) * zFar * zNear) / (zFar - zNear)
+  result[2, 2] = -(zFar + zNear) / (zFar - zNear)
+  result[3, 2] = -(T(2) * zFar * zNear) / (zFar - zNear)
 
 proc updateProjectionMat*(c: var CameraData) =
   case c.kind
   of Orthographic:
     let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
     c.projectionMat = ortho[GLfloat](
-      -frustumW / 2, frustumW / 2,
-      -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
+      -frustumW / 2, frustumW / 2, -frustumH / 2, frustumH / 2, c.nearClip, c.farClip
     )
   of Perspective:
-    c.projectionMat = perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
+    c.projectionMat =
+      perspectiveRH[GLfloat](c.verticalFov, c.aspectRatio, c.nearClip, c.farClip)
 
-proc initPerspectiveCamera*(verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool): CameraData =
+proc initPerspectiveCamera*(
+    verticalFov, aspectRatio, nearClip, farClip: GLfloat, rasterizerOn: bool
+): CameraData =
   result = CameraData(
-    kind: Perspective, aspectRatio: aspectRatio, verticalFov: verticalFov,
-    nearClip: nearClip, farClip: farClip,
+    kind: Perspective,
+    aspectRatio: aspectRatio,
+    verticalFov: verticalFov,
+    nearClip: nearClip,
+    farClip: farClip,
   )
   result.updateProjectionMat()
-proc setPerspective*(c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat) =
+
+proc setPerspective*(
+    c: var CameraData, verticalFov, aspectRatio, nearClip, farClip: GLfloat
+) =
   c.kind = Perspective
   c.verticalFov = verticalFov
   c.aspectRatio = aspectRatio
@@ -38,10 +46,21 @@ proc setPerspective*(c: var CameraData, verticalFov, aspectRatio, nearClip, farC
   c.farClip = farClip
   c.updateProjectionMat()
 
-proc initOrthographicCamera*(frustumLength, aspectRatio, nearClip, farClip: GLfloat): CameraData =
-  result = CameraData(kind: Orthographic, aspectRatio: aspectRatio, frustumLength: frustumLength, nearClip: nearClip, farClip: farClip)
+proc initOrthographicCamera*(
+    frustumLength, aspectRatio, nearClip, farClip: GLfloat
+): CameraData =
+  result = CameraData(
+    kind: Orthographic,
+    aspectRatio: aspectRatio,
+    frustumLength: frustumLength,
+    nearClip: nearClip,
+    farClip: farClip,
+  )
   result.updateProjectionMat()
-proc setOrthographic*(c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat) =
+
+proc setOrthographic*(
+    c: var CameraData, frustumLength, aspectRatio, nearClip, farClip: GLfloat
+) =
   c.kind = Orthographic
   c.frustumLength = frustumLength
   c.aspectRatio = aspectRatio
@@ -79,7 +98,7 @@ proc getLocalPlaneMoveDir*(c: var CameraData, moveDirection: Vec3f): Vec3f =
     planeRight = cross(planeForward, vec3f(0, 1, 0))
   return moveDir.x * planeRight - moveDir.z * planeForward
 
-proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
+proc rotate*(c: var CameraData, co: FpCameraOptions, deltaX, deltaY: float) =
   let deltaYaw = deltaX * co.yawScale * co.sensitivity
   let deltaPitch = deltaY * co.pitchScale * co.sensitivity
 
@@ -89,15 +108,19 @@ proc rotate*(c: var CameraData; co: FpCameraOptions, deltaX, deltaY: float) =
   # Prevent vertical flipping
   c.pitch = c.pitch.clamp(-PI / 2 + PI / 256, PI / 2 - PI / 256)
   # Keep yaw in -180 .. 180 degrees
-  if c.yaw > PI: c.yaw -= 2 * PI
-  if c.yaw < -PI: c.yaw += 2 * PI
+  if c.yaw > PI:
+    c.yaw -= 2 * PI
+  if c.yaw < -PI:
+    c.yaw += 2 * PI
 
-proc doCameraRotation*(e: var Entity; deltaX, deltaY: float; co: FpCameraOptions) =
+proc doCameraRotation*(e: var Entity, deltaX, deltaY: float, co: FpCameraOptions) =
   if (deltaX, deltaY) != (0.0, 0.0):
     e.camera.rotate(co, deltaX, -deltaY)
     e.updateTransform()
 
-proc doFlyingCameraMovement*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f; deltaX, deltaY, dt: float) =
+proc doFlyingCameraMovement*(
+    e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, deltaX, deltaY, dt: float
+) =
   if moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
     let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)

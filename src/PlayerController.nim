@@ -19,7 +19,7 @@ const
 proc applyGroundFriction*(p: var PlayerData, dt: float) =
   let speed = p.velocity.length()
 
-  if speed < 0.05'f32: 
+  if speed < 0.05'f32:
     p.velocity = vec3f(0)
   else:
     let control = if speed < stopSpeed: stopSpeed else: speed
@@ -27,7 +27,9 @@ proc applyGroundFriction*(p: var PlayerData, dt: float) =
     let newSpeed = max(0.0, speed - speedLoss)
     p.velocity *= newSpeed / speed
 
-proc accelerate(p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32; dt: float) =
+proc accelerate(
+    p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32, dt: float
+) =
   let speedTowardsTarget = p.velocity.dot(targetDir)
   let addSpeed = targetSpeed - speedTowardsTarget
   if addSpeed > 0:
@@ -35,8 +37,7 @@ proc accelerate(p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32
     p.velocity += accelSpeed * targetDir
 
 proc doWalkingPlayerMovement*(
-  e: var Entity, s: Scene, moveDirection: Vec3f, 
-  dt: float, monoTime: MonoTime
+    e: var Entity, s: Scene, moveDirection: Vec3f, dt: float, monoTime: MonoTime
 ) =
   let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
   let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
@@ -47,21 +48,24 @@ proc doWalkingPlayerMovement*(
     e.player.accelerate(targetDir, targetSpeed, accelerationScale, dt)
   else:
     e.player.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
-  
+
   if moveDirection.y > 0:
     if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
       e.player.jumping = true
       globalLogger.log fmt"Jumping at speed {e.player.velocity.length}, grounded = false"
       e.player.velocity.y += jumpForce
-    elif monoTime - e.player.lastWallTouch < coyoteTime and len(e.player.lastTouchedWallColliders * e.player.lastJumpedWallColliders) == 0:
+    elif monoTime - e.player.lastWallTouch < coyoteTime and
+        len(e.player.lastTouchedWallColliders * e.player.lastJumpedWallColliders) == 0:
       e.player.lastJumpedWallColliders = e.player.lastTouchedWallColliders
       let rotateAxis = cross(vec3f(0, 1, 0), e.player.lastWallTouchDir)
       let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
       let jumpDir = vec4f(e.player.lastWallTouchDir, 0) * rotateUpMat
       globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
       var cancelVelocity = vec3f(1)
-      if e.player.lastWallTouchDir.x != 0: cancelVelocity.x = 0
-      if e.player.lastWallTouchDir.y != 0: cancelVelocity.y = 0
+      if e.player.lastWallTouchDir.x != 0:
+        cancelVelocity.x = 0
+      if e.player.lastWallTouchDir.y != 0:
+        cancelVelocity.y = 0
       e.player.velocity *= cancelVelocity
       e.player.velocity += 2 * jumpForce * jumpDir.xyz
   e.player.velocity.y -= gravity * dt

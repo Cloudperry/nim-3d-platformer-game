@@ -10,16 +10,20 @@ type
     pos*: Vec3f
     scale*: Vec3f = vec3f(1.0, 1.0, 1.0)
     rotation*: Vec3f
+
   ProjectionKind* = enum
-    Orthographic, Perspective
+    Orthographic
+    Perspective
+
   FpCameraOptions* = object
     # Pitch/yaw scaling to match Source engine. In this engine,
     # transforms use radian rotations so Source engine constants need to be scaled.
-    pitchScale*: float = 0.022 * degToRad 
+    pitchScale*: float = 0.022 * degToRad
     yawScale*: float = 0.022 * degToRad
     sensitivity*: float = 2
     moveSpeed*: float = 9
     # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
+
   CameraData* = object
     # Positive yaw means turning left and positive pitch means turning up
     yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
@@ -34,13 +38,17 @@ type
       frustumLength*: GLfloat
     of Perspective:
       verticalFov*: GLfloat
+
   Model*[T] = object
     transform*: Transform
     vertices*: seq[T]
-    indices*: seq[GLuint] # Indices can be left empty and it means the model has a raw triangle vertex list
+    indices*: seq[GLuint]
+      # Indices can be left empty and it means the model has a raw triangle vertex list
+
   DirectionalLight* = object
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
+
   Scene*[T] = object
     models*: seq[Model[T]]
     entities*: seq[Entity]
@@ -49,11 +57,19 @@ type
     colliderIds*: seq[int]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
+
   EntityId* = object
     id*: int
     generation*: uint8
+
   EntityKind* = enum
-    Root, Base, Player, Camera, BoxCollider, PlayerController
+    Root
+    Base
+    Player
+    Camera
+    BoxCollider
+    PlayerController
+
   Entity* = object
     kind*: EntityKind
     t*: Transform
@@ -65,16 +81,24 @@ type
     boxColliderData*: Option[BoxColliderData]
     deleted*: bool
     generation*: int
+
   ColliderTags* = enum
-    LevelGeo, Ground, Ignored
-  BoxColliderData* = object 
+    LevelGeo
+    Ground
+    Ignored
+
+  BoxColliderData* = object
     halfExtents*: Vec3f
     tags*: set[ColliderTags] = {LevelGeo}
+
   CollisionResult* = object
     pushVec*: Vec3f
     colliderIds*: seq[int]
+
   MovementMode* = enum
-    Flying, Walking
+    Flying
+    Walking
+
   PlayerData* = object
     mode*: MovementMode
     cameraOpts*: FpCameraOptions
@@ -83,18 +107,27 @@ type
     lastWallTouchDir*: Vec3f
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
+
   FrameState* = object
     cursorDeltaX*, cursorDeltaY*, deltaTime*: float
     moveDirection*: Vec3f
     monoTime*: MonoTime
 
-template addSafeComponentAccessors(fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]): untyped =
+template addSafeComponentAccessors(
+    fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]
+): untyped =
   template fieldName*(e: Entity): untyped =
-    assert e.kind in allowedKinds and e.hiddenFieldName.isSome, "Entity of type " & $e.kind & " doesn't have the field " & astToStr(hiddenFieldName)
+    assert e.kind in allowedKinds and e.hiddenFieldName.isSome,
+      "Entity of type " & $e.kind & " doesn't have the field " &
+        astToStr(hiddenFieldName)
     e.hiddenFieldName.get
+
   template `fieldName=`*(e: var Entity, val: untyped) =
-    assert e.kind in allowedKinds and e.hiddenFieldName.isSome, "Entity of type " & $e.kind & " doesn't have the field " & astToStr(hiddenFieldName)
+    assert e.kind in allowedKinds and e.hiddenFieldName.isSome,
+      "Entity of type " & $e.kind & " doesn't have the field " &
+        astToStr(hiddenFieldName)
     e.hiddenFieldName.get = val
+
 addSafeComponentAccessors(player, playerData, {PlayerController})
 addSafeComponentAccessors(camera, cameraData, {PlayerController, Camera})
 addSafeComponentAccessors(boxCollider, boxColliderData, {PlayerController, BoxCollider})

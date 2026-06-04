@@ -9,21 +9,30 @@ makeGlObjects(RaiseError, std140Alignment):
   type GpuSceneUniforms = object
     cameraPos: Vec3f
     # Just one model to world transform for now, separate transforms for each model will be needed later
-    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f 
+    modelToWorldMat, worldToViewMat, viewToClipMat: Mat4f
     mainLightDirection: Vec3f
     mainLightColor: Vec3f
     ambientLightColor: Vec3f
 
 type
   Config = object
-    useSpirv {. 
-      name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL" .}: bool
+    useSpirv {.
+      name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL"
+    .}: bool
     slangBinPath {.
-      name: "slangBinPath", defaultValue: "/opt/shader-slang-bin/bin", desc: "Slang shader compiler path" .}: string 
-    movementMode {. 
-      name: "movementMode", defaultValue: Flying, desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)" .}: MovementMode
-    mouseSensitivity {. 
-      name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity" .}: float
+      name: "slangBinPath",
+      defaultValue: "/opt/shader-slang-bin/bin",
+      desc: "Slang shader compiler path"
+    .}: string
+    movementMode {.
+      name: "movementMode",
+      defaultValue: Flying,
+      desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)"
+    .}: MovementMode
+    mouseSensitivity {.
+      name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity"
+    .}: float
+
   State = object
     conf: Config
     # Window/input
@@ -48,16 +57,19 @@ const
   appDesc = "Nim OpenGL FPS game"
   appName = "NimFpsGame"
 
-var
-  state = State()
+var state = State()
 
-proc updateCameraAspect(win: Window; width, height: int) =
+proc updateCameraAspect(win: Window, width, height: int) =
   var ratio = width / height
   if state.playerI != 0:
-    template c: untyped = state.scene.entities[state.playerI].camera
-    case c.kind:
-    of Perspective: c.setPerspective(c.verticalFov, ratio, c.nearClip, c.farClip)
-    of Orthographic: c.setOrthographic(c.frustumLength, ratio, c.nearClip, c.farClip)
+    template c(): untyped =
+      state.scene.entities[state.playerI].camera
+
+    case c.kind
+    of Perspective:
+      c.setPerspective(c.verticalFov, ratio, c.nearClip, c.farClip)
+    of Orthographic:
+      c.setOrthographic(c.frustumLength, ratio, c.nearClip, c.farClip)
 
     glViewport(0, 0, width, height)
 
@@ -92,52 +104,65 @@ proc init(win: Window, useSpirV: bool) =
     pyramid = makePyramid(0.5'f32, shapeColor)
     sphere = makeSphere(0.5, 100, 100, shapeColor)
     groundModel = initModel(
-      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1))
+      ground.vertices,
+      ground.indices,
+      transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1)),
     )
     wallModel = initModel(
-      wall.vertices, wall.indices, transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1, 1, 1))
+      wall.vertices,
+      wall.indices,
+      transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1, 1, 1)),
     )
     groundModelLowerLv = initModel(
-      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1, 1, 1))
+      ground.vertices,
+      ground.indices,
+      transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1, 1, 1)),
     )
     roofModel = initModel(
-      ground.vertices, ground.indices, transform = Transform(pos: vec3f(0, 5, 0), scale: vec3f(1, 1, 1))
+      ground.vertices,
+      ground.indices,
+      transform = Transform(pos: vec3f(0, 5, 0), scale: vec3f(1, 1, 1)),
     )
     cubeModel = initModel(
-      cube.vertices, cube.indices, transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1))
+      cube.vertices,
+      cube.indices,
+      transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1)),
     )
     pyramidModel = initModel(
-      pyramid.vertices, pyramid.indices, transform = Transform(pos: vec3f(-2, 0, -2), scale: vec3f(1, 1, 1))
+      pyramid.vertices,
+      pyramid.indices,
+      transform = Transform(pos: vec3f(-2, 0, -2), scale: vec3f(1, 1, 1)),
     )
     sphereModel = initModel(
-      sphere.vertices, sphere.indices, transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1))
+      sphere.vertices,
+      sphere.indices,
+      transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1)),
     )
 
   let (width, height) = glfw.framebufferSize(win)
   win.updateCameraAspect(width, height)
 
   state.scene = initScene(
-    @[groundModel, wallModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel, sphereModel],
-    DirectionalLight(direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)).some,
-    vec3f(0.1).some
+    @[
+      groundModel, wallModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel,
+      sphereModel,
+    ],
+    DirectionalLight(
+      direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)
+    ).some,
+    vec3f(0.1).some,
   )
   discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    BoxColliderData(
-      halfExtents: vec3f(40, 0.5, 40),
-      tags: {Ground}
-    )
+    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: {Ground}),
   )
   discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    BoxColliderData(
-      halfExtents: vec3f(40, 0.5, 40),
-      tags: {Ground}
-    )
+    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: {Ground}),
   )
   discard state.scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    BoxColliderData(halfExtents: vec3f(40, 7, 1))
+    BoxColliderData(halfExtents: vec3f(40, 7, 1)),
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
@@ -158,23 +183,36 @@ proc init(win: Window, useSpirV: bool) =
   else:
     state.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
-  state.uniforms = initShaderDataBuffer[GpuSceneUniforms](state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW)
+  state.uniforms = initShaderDataBuffer[GpuSceneUniforms](
+    state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
+  )
 
   # Set up OpenGL buffers for passing vertex data to shaders
   state.scene.makeGlBuffers()
   state.scene.setSceneUniforms()
-  state.pointLights = initShaderDataBuffer[seq[PointLight]](state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW)
-  state.pointLights.add PointLight(
-    position: vec3f(3, 0, 3), color: vec3f(0.8, 0.4, 0),
-    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+  state.pointLights = initShaderDataBuffer[seq[PointLight]](
+    state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW
   )
   state.pointLights.add PointLight(
-    position: vec3f(-3, 0, 3), color: vec3f(0, 0.5, 0.7),
-    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+    position: vec3f(3, 0, 3),
+    color: vec3f(0.8, 0.4, 0),
+    constTerm: 1,
+    linearFalloff: 0.5,
+    expFalloff: 1 / 20,
   )
   state.pointLights.add PointLight(
-    position: vec3f(0, 0, -5), color: vec3f(0.4, 0.4, 0.4),
-    constTerm: 1, linearFalloff: 0.5, expFalloff: 1/20
+    position: vec3f(-3, 0, 3),
+    color: vec3f(0, 0.5, 0.7),
+    constTerm: 1,
+    linearFalloff: 0.5,
+    expFalloff: 1 / 20,
+  )
+  state.pointLights.add PointLight(
+    position: vec3f(0, 0, -5),
+    color: vec3f(0.4, 0.4, 0.4),
+    constTerm: 1,
+    linearFalloff: 0.5,
+    expFalloff: 1 / 20,
   )
   state.pointLights.upload()
 
@@ -189,7 +227,8 @@ proc init(win: Window, useSpirV: bool) =
 
 proc update(win: Window, frame: var FrameState) =
   let cursorPos = win.cursorPos
-  (frame.cursorDeltaX, frame.cursorDeltaY) = (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
+  (frame.cursorDeltaX, frame.cursorDeltaY) =
+    (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
   # Keyboard input
@@ -207,7 +246,9 @@ proc update(win: Window, frame: var FrameState) =
   elif win.isKeyDown(keyBackslash) or win.isKeyDown(keyLeftShift):
     frame.moveDirection.y -= 1
 
-  template p: untyped = state.scene.entities[state.playerI]
+  template p(): untyped =
+    state.scene.entities[state.playerI]
+
   state.scene.update(frame, p.player.cameraOpts)
 
 proc uninit() =
@@ -233,31 +274,49 @@ proc draw(win: Window) =
   for i in 0 .. state.vertexArrays.high:
     state.vertexArrays[i].use()
     state.scene.models[i].setUniforms()
-    glDrawElements(GL_TRIANGLES, state.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0))
+    glDrawElements(
+      GL_TRIANGLES, state.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0)
+    )
 
-proc sizeCb(win: Window, size: tuple[w, h: int32]) = win.updateCameraAspect(size.w, size.h)
+proc sizeCb(win: Window, size: tuple[w, h: int32]) =
+  win.updateCameraAspect(size.w, size.h)
 
 proc setUniforms(c: CameraData) =
   state.uniforms.worldToViewMat = c.viewMat
   state.uniforms.viewToClipMat = c.projectionMat
 
-proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]) =
+proc keyCb(
+    win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: set[ModifierKey]
+) =
   if key == keyEscape and action == kaDown:
     win.shouldClose = true
-  elif (key == keyLeftAlt and win.isKeyDown(keyEnter) or
-  key == keyEnter and win.isKeyDown(keyLeftAlt)) and action == kaDown:
+  elif (
+    key == keyLeftAlt and win.isKeyDown(keyEnter) or
+    key == keyEnter and win.isKeyDown(keyLeftAlt)
+  ) and action == kaDown:
     if not state.fullscreen:
       let monitorArea = state.monitor.workArea()
       let monitorMode = state.monitor.videoMode()
-      state.prevWinProps = (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
+      state.prevWinProps =
+        (win.pos.x, win.pos.y, win.size.w, win.size.h, monitorMode.refreshRate)
       globalLogger.log fmt"Going into fullscreen {(monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)}"
-      win.monitor = (state.monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h, monitorMode.refreshRate)
+      win.monitor = (
+        state.monitor, monitorArea.x, monitorArea.y, monitorArea.w, monitorArea.h,
+        monitorMode.refreshRate,
+      )
     else:
-      let winProps = (state.prevWinProps.x, state.prevWinProps.y, state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate)
+      let winProps = (
+        state.prevWinProps.x, state.prevWinProps.y, state.prevWinProps.w,
+        state.prevWinProps.h, state.prevWinProps.refreshRate,
+      )
       globalLogger.log fmt"Going out of fullscreen {winProps}"
       win.monitor = (
-        newMonitor(nil), state.prevWinProps.x, state.prevWinProps.y,
-        state.prevWinProps.w, state.prevWinProps.h, state.prevWinProps.refreshRate
+        newMonitor(nil),
+        state.prevWinProps.x,
+        state.prevWinProps.y,
+        state.prevWinProps.w,
+        state.prevWinProps.h,
+        state.prevWinProps.refreshRate,
       )
     state.fullscreen = not state.fullscreen
 
@@ -269,7 +328,8 @@ proc keyCb(win: Window, key: Key, scanCode: int32, action: KeyAction, modKeys: s
 proc positionCb(win: Window, pos: tuple[x, y: int32]) =
   let newMonitor = win.monitor
   privateAccess(newMonitor.type)
-  if newMonitor.handle != nil: # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
+  if newMonitor.handle != nil:
+    # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
 proc compileShaders(useSpirV: bool, slangBinPath = "") =
@@ -282,7 +342,8 @@ proc compileShaders(useSpirV: bool, slangBinPath = "") =
     opts.target = SpirV
   opts.stage = Vertex
   opts.inFile = shadersDir / "RasterizedRenderer.slang"
-  if slangBinPath.len > 0: opts.slangPath = slangBinPath
+  if slangBinPath.len > 0:
+    opts.slangPath = slangBinPath
   state.vertexShaderText = compileShaderOrRaise(opts)
 
   opts.stage = Fragment
@@ -331,7 +392,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   return (win, cfg)
 
 proc main() =
-  state.conf = Config.load(copyrightBanner=appDesc)
+  state.conf = Config.load(copyrightBanner = appDesc)
   compileShaders(state.conf.useSpirV, state.conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
@@ -343,17 +404,22 @@ proc main() =
     frame = FrameState()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
-    frame.deltaTime = frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
+    frame.deltaTime =
+      frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
     frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
-    
+
     win.update(frame)
     let updateEnd = getMonoTime()
     win.draw()
     glfw.swapBuffers(win)
 
     let currFrameEnd = getMonoTime()
-    logPerf(updateEnd - currFrameStart, currFrameEnd - updateEnd, currFrameEnd - currFrameStart)
+    logPerf(
+      updateEnd - currFrameStart,
+      currFrameEnd - updateEnd,
+      currFrameEnd - currFrameStart,
+    )
 
     glfw.pollEvents()
   uninit()
