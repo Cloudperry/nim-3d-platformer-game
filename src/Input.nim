@@ -1,5 +1,5 @@
 import std/[tables, streams, strformat, times]
-import pkg/[glm, supersnappy]
+import pkg/[glm, flatty]
 import ./Containers
 
 type
@@ -36,8 +36,12 @@ type
     tickN*: uint64
     inputs*: ActionInputs
     actionName*: T
-
   ReplayBuffer*[T: enum] = CircularBuffer[1024, RecordedAction[T]]
+
+proc `==`*(a1, a2: ActionInputs): bool =
+  return (a1.kind == a2.kind and a1.kind == BoolAction and a1.boolVal == a2.boolVal) or
+    (a1.kind == a2.kind and a1.kind == FloatAction and a1.floatVal == a2.floatVal) or
+    (a1.kind == a2.kind and a1.kind == Vector2Action and a1.vec2Val == a2.vec2Val)
 
 proc initReplayBuffer[T: enum](
     actionNames: typedesc[T]
@@ -87,7 +91,7 @@ proc addRecordingInputReader*[A, I: enum, T](
     replayBuffer: var ReplayBuffer[A],
     tickN: uint64,
     recordingEnabled = false,
-) =
+): bool =
   for inputName, actionName in iToA.pairs:
     if actionName in actions:
       let input = reader(inputName).wrapInput()
@@ -96,42 +100,48 @@ proc addRecordingInputReader*[A, I: enum, T](
         replayBuffer.push RecordedAction[A](
           actionName: actionName, inputs: input, tickN: tickN
         )
+        if replayBuffer.i == 0:
+          return true
+  return false
 
-proc writeBufferToFileIfFull*[A](buffer: ReplayBuffer[A], startTime: DateTime) =
-  if buffer.i == 0:
-    var replayBufBytes: string
-    replayBufBytes.toFlatty(buffer)
-    let compressedReplayBufBytes = replayBufBytes.compress()
+proc writeFile*[A](buffer: ReplayBuffer[A], startTime: DateTime) =
+  var replayBufBytes: string
+  replayBufBytes.toFlatty(buffer)
 
-    let date = startTime.format("yyyy-M-d-h-m-s")
-    let f = open(fmt"{date}.{A}.replay", fmAppend)
-    f.write(compressedReplayBufBytes.len.uint32)
-    f.write(compressedReplayBufBytes)
-    f.close()
+  let date = startTime.format("yyyy-M-d-h-m-s")
+  let f = open(fmt"{date}.{$A}.replay", fmAppend)
+  f.write(replayBufBytes)
+  f.close()
 
 type ReplayPlayer*[A] = object
   replayStream*: FileStream
   replayBuf*: ReplayBuffer[A]
 
-proc initReplayPlayer[A](filename: string): ReplayPlayer =
-  ReplayPlayer(replayFileStream: newFileStream(filename, fmRead))
+proc initReplayPlayer*[A](filename: string): ReplayPlayer[A] =
+  ReplayPlayer[A](replayStream: newFileStream(filename, fmRead))
 
-proc cleanup[A](rp: var ReplayPlayer[A]) =
+proc cleanup*[A](rp: var ReplayPlayer[A]) =
   rp.replayStream.close()
 
-proc play[A](rp: var ReplayPlayer[A], actions: Actions[A], tickN: uint64) =
-  let recAction = rp.replayBuf[rp.replayBuf.i]
+proc play*[A](rp: var ReplayPlayer[A], actions: Actions[A], tickN: uint64) =
+  if rp.replayStream.atEnd():
+    return
+  
+  var recAction = rp.replayBuf[rp.replayBuf.i]
   if rp.replayBuf == ReplayBuffer[A].default or tickN > recAction.tickN:
-    let replayBufChunkSize = rp.replayStream.readUint32()
-    let compressedReplayBufBytes = rp.replayStream.readStr(replayBufChunkSize)
-    let replayBufBytes = compressedReplayBufBytes.uncompress()
-    rp.replayBuf = replayBufBytes.fromFlatty[ReplayBuffer]()
+    let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
+    rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
     rp.replayBuf.i = 0
-  else:
+
+  while recAction.tickN <= tickN:
+    recAction = rp.replayBuf[rp.replayBuf.i]
     if recAction.tickN == tickN:
       let action = actions[recAction.actionName]
-      action.run(recAction.i)
-      rp.replayBuf.i += 1
+      action.run(recAction.inputs)
+      if rp.replayBuf.i < 1023:
+        rp.replayBuf.i += 1
+      else:
+        break
 
 when isMainModule:
   proc testAction(active: bool) =

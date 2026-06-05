@@ -45,8 +45,8 @@ type
       desc: "Record a replay buffer from player inputs"
     .}: bool
     showReplay {.
-      name: "showReplay", defaultValue: false, desc: "Play back a saved replay"
-    .}: bool
+      name: "showReplay", defaultValue: "", desc: "Play back a saved replay"
+    .}: string
 
   ActionNames = enum
     MoveFwd
@@ -166,6 +166,8 @@ proc init(win: Window, useSpirV: bool) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
+  if state.conf.showReplay.len > 0:
+    state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay)
 
   template scene(): untyped =
     state.scene
@@ -214,16 +216,20 @@ template update() =
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
   state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
-  addRecordingInputReader(
-    inputsToActions,
-    actions,
-    proc(k: Key): bool =
-      win.isKeyDown(k),
-    state.replayBuffer,
-    state.frameCount,
-    false,
-  )
-  state.replayBuffer.writeBufferToFileIfFull(state.startTime)
+  if state.conf.showReplay.len <= 0:
+    let bufferFull = addRecordingInputReader(
+      inputsToActions,
+      actions,
+      proc(k: Key): bool =
+        win.isKeyDown(k),
+      state.replayBuffer,
+      state.frameCount,
+      state.conf.recordInputs,
+    )
+    if bufferFull:
+      state.replayBuffer.writeFile(state.startTime)
+  else:
+    state.replayPlayer.play(actions, state.frameCount)
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
@@ -234,6 +240,8 @@ proc uninit() =
     state.vertexArrays[i].cleanup()
   state.uniforms.cleanup()
   state.shader.cleanup()
+  if state.conf.showReplay.len > 0:
+    state.replayPlayer.cleanup()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
