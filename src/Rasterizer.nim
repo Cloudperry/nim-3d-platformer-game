@@ -1,12 +1,14 @@
 import
-  std/[os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables]
+  std/[
+    os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
+  ]
 import std/times except `getTime`
 import pkg/[glm, glfw, confutils, flatty]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
     GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers
+    Math, Input, TestScenes, Containers,
   ]
 import ./glad/gl
 
@@ -38,12 +40,13 @@ type
       name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity"
     .}: float
     recordInputs {.
-      name: "recordInputs", defaultValue: true, desc: "Record a replay buffer from player inputs"
+      name: "recordInputs",
+      defaultValue: true,
+      desc: "Record a replay buffer from player inputs"
     .}: bool
     showReplay {.
       name: "showReplay", defaultValue: false, desc: "Play back a saved replay"
     .}: bool
-
 
   ActionNames = enum
     MoveFwd
@@ -51,7 +54,7 @@ type
     MoveLeft
     MoveRight
     Jump
-    FlyDown,
+    FlyDown
     PrintReplayBuf
 
   State = object
@@ -72,6 +75,8 @@ type
     playerI: int
     frameCount: uint64
     replayBuffer: ReplayBuffer[ActionNames]
+    replayPlayer: ReplayPlayer[ActionNames]
+    startTime: DateTime
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
@@ -88,7 +93,7 @@ const
     keySpace: Jump,
     keyBackslash: FlyDown,
     keyLeftShift: FlyDown,
-    keyP: PrintReplayBuf
+    keyP: PrintReplayBuf,
   }.toTable
 
 var state = State()
@@ -127,7 +132,7 @@ let actions: Actions[ActionNames] = {
   PrintReplayBuf: initBoolAction(
     proc(pressed: bool) =
       globalLogger.log fmt"Replay buffer: {state.replayBuffer}"
-  )
+  ),
 }.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
@@ -157,6 +162,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.ambientLightColor = s.ambientLightColor
 
 proc init(win: Window, useSpirV: bool) =
+  state.startTime = now()
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
@@ -208,28 +214,16 @@ template update() =
   (state.prevCursorX, state.prevCursorY) = cursorPos
 
   state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
-  if state.conf.recordInputs:
-    addRecordingInputReader(
-      inputsToActions,
-      actions,
-      proc(k: Key): bool =
-        win.isKeyDown(k),
-      state.replayBuffer,
-      state.frameCount
-    )
-    if state.replayBuffer.i == 0:
-      var replayBufBytes: string
-      replayBufBytes.toFlatty(state.replayBuffer)
-      let f = open("replay.bin", fmAppend)
-      f.write(replayBufBytes)
-      f.close()
-  else:
-    addInputReader(
-      inputsToActions,
-      actions,
-      proc(k: Key): bool =
-        win.isKeyDown(k),
+  addRecordingInputReader(
+    inputsToActions,
+    actions,
+    proc(k: Key): bool =
+      win.isKeyDown(k),
+    state.replayBuffer,
+    state.frameCount,
+    false,
   )
+  state.replayBuffer.writeBufferToFileIfFull(state.startTime)
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
