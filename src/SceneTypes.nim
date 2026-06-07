@@ -119,6 +119,7 @@ type
     lastTouchedWallColliders*, lastJumpedWallColliders*: IntSet
     velocity*: Vec3f
     moveDirection*: Vec3f
+    turnVec*: Vec2f
 
   FrameState* = object
     cursorDeltaX*, cursorDeltaY*, deltaTime*: float

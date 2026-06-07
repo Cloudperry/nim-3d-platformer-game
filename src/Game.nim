@@ -56,6 +56,9 @@ type
     Jump
     FlyDown
     PrintReplayBuf
+    TurnCamera
+  AxisInputs = enum
+    Mouse
 
   State = object
     conf: Config
@@ -74,15 +77,15 @@ type
     scene: Scene[ColoredVertex]
     playerI: int
     frameCount: uint64
-    replayBuffer: ReplayBuffer[ActionNames]
     replayPlayer: ReplayPlayer[ActionNames]
+    replayRecorder: ReplayRecorder[ActionNames]
     startTime: DateTime
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
   appDesc = "Nim OpenGL FPS game"
   appName = "NimFpsGame"
-  inputsToActions: InputsToActions[ActionNames, Key] = {
+  buttonActions: InputsToActions[ActionNames, Key] = {
     keyComma: MoveFwd,
     keyW: MoveFwd,
     keyO: MoveBack,
@@ -94,6 +97,9 @@ const
     keyBackslash: FlyDown,
     keyLeftShift: FlyDown,
     keyP: PrintReplayBuf,
+  }.toTable
+  axisActions: InputsToActions[ActionNames, AxisInputs] = {
+    Mouse: TurnCamera
   }.toTable
 
 var state = State()
@@ -131,8 +137,14 @@ let actions: Actions[ActionNames] = {
   ),
   PrintReplayBuf: initBoolAction(
     proc(pressed: bool) =
-      globalLogger.log fmt"Replay buffer: {state.replayBuffer}"
+      globalLogger.log fmt"Replay buffer: {state.replayRecorder.buf}"
   ),
+  TurnCamera: initVector2Action(
+    proc(turn: Vec2f) =
+        player.turnVec = vec2f(turn.x - state.prevCursorX, turn.y - state.prevCursorY)
+        (state.prevCursorX, state.prevCursorY) = (turn.x, turn.y),
+    runOnlyWhenNonZero = false
+  )
 }.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
@@ -166,6 +178,9 @@ proc init(win: Window, useSpirV: bool) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
   (state.prevCursorX, state.prevCursorY) = win.cursorPos
+
+  let date = state.startTime.format("yyyy-M-d-h-m-s")
+  state.replayRecorder = initReplayRecorder[ActionNames](fmt"{date}.{$ActionNames}.replay", actions)
   if state.conf.showReplay.len > 0:
     state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay)
 
@@ -209,27 +224,34 @@ proc init(win: Window, useSpirV: bool) =
   glEnable(GL_DEPTH_TEST)
   glDepthFunc(GL_LESS)
 
-template update() =
-  let cursorPos = win.cursorPos
-  (frame.cursorDeltaX, frame.cursorDeltaY) =
-    (cursorPos.x - state.prevCursorX, cursorPos.y - state.prevCursorY)
-  (state.prevCursorX, state.prevCursorY) = cursorPos
+proc getAxis(win: Window, a: AxisInputs): Vec2f =
+  case a
+  of Mouse:
+    vec2f(win.cursorPos.x, win.cursorPos.y)
 
+template update() =
+  state.scene.entities[state.playerI].player.turnVec = vec2f(0)
   state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
   if state.conf.showReplay.len <= 0:
-    let bufferFull = addRecordingInputReader(
-      inputsToActions,
-      actions,
-      proc(k: Key): bool =
-        win.isKeyDown(k),
-      state.replayBuffer,
+    # Mouse input
+    state.replayRecorder.addRecordingInputReader(
+      axisActions,
+      proc(a: AxisInputs): Vec2f =
+        win.getAxis(a),
       state.frameCount,
       state.conf.recordInputs,
     )
-    if bufferFull:
-      state.replayBuffer.writeFile(state.startTime)
+
+    # Keyboard input
+    state.replayRecorder.addRecordingInputReader(
+      buttonActions,
+      proc(k: Key): bool =
+        win.isKeyDown(k),
+      state.frameCount,
+      state.conf.recordInputs,
+    )
   else:
-    state.replayPlayer.play(actions, state.frameCount)
+    let playing = state.replayPlayer.play(actions, state.frameCount)
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
@@ -240,6 +262,8 @@ proc uninit() =
     state.vertexArrays[i].cleanup()
   state.uniforms.cleanup()
   state.shader.cleanup()
+
+  state.replayRecorder.cleanup()
   if state.conf.showReplay.len > 0:
     state.replayPlayer.cleanup()
 

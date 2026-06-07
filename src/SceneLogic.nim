@@ -64,7 +64,7 @@ proc addEntity*(s: var Scene, e: Entity): int =
 proc updatePlayer(e: var Entity, s: Scene, frame: FrameState, co: FpCameraOptions) =
   let player = e.player
   # Camera rotation
-  e.doCameraRotation(frame.cursorDeltaX, frame.cursorDeltaY, co)
+  e.doCameraRotation(player.turnVec.x, player.turnVec.y, co)
   # Player movement
   case player.mode
   of Flying:
