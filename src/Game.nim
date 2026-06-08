@@ -142,12 +142,14 @@ let actions: Actions[ActionNames] = {
   ),
   SetDeltaTime: initFloatAction(
     proc(dt: float) =
-      frame.deltaTime = dt
+      frame.deltaTime = dt,
+    runOnlyWhenNonZero = false,
   ),
-    #[SetMonoTime: initFloatAction(
+  SetMonoTime: initMonoTimeAction(
     proc(monoTime: MonoTime) =
-    frame.monoTime = monoTime
-  )]#
+      frame.monoTime = monoTime,
+    runOnlyWhenNonZero = false,
+  ),
 }.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
@@ -242,7 +244,9 @@ template update() =
     state.replayRecorder.recordFrameData(
       SetDeltaTime, state.frameCount, frame.deltaTime, state.conf.recordInputs
     )
-    # state.replayRecorder.recordFrameData(SetMonoTime, state.frameCount, frame.monoTime, state.conf.recordInputs)
+    state.replayRecorder.recordFrameData(
+      SetMonoTime, state.frameCount, frame.monoTime, state.conf.recordInputs
+    )
 
     # Mouse input
     state.replayRecorder.addRecordingInputReader(

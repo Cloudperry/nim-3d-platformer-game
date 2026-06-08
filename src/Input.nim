@@ -1,4 +1,4 @@
-import std/[tables, streams, strformat, times]
+import std/[tables, streams, strformat, times, monotimes]
 import pkg/[glm, flatty]
 import ./[Containers, Logger]
 
@@ -9,10 +9,12 @@ type
     BoolAction
     FloatAction
     Vector2Action
+    MonoTimeAction
 
   BoolActionFn = proc(active: bool)
   FloatActionFn = proc(value: float)
   Vec2ActionFn = proc(value: Vec2f)
+  MonoTimeActionFn = proc(value: MonoTime)
   ActionInputs = object
     case kind*: ActionKind
     of BoolAction:
@@ -21,6 +23,8 @@ type
       floatVal*: float
     of Vector2Action:
       vec2Val*: Vec2f
+    of MonoTimeAction:
+      monoTimeVal*: MonoTime
 
   Action = object
     runOnlyWhenNonZero: bool
@@ -31,6 +35,8 @@ type
       floatFn: FloatActionFn
     of Vector2Action:
       vec2Fn: Vec2ActionFn
+    of MonoTimeAction:
+      monoTimeFn: MonoTimeActionFn
 
   # TODO: Add input contexts that can be switched to have different keybinds available (e.g. menu, in-game)
   Actions*[A: enum] = Table[A, Action]
@@ -72,7 +78,10 @@ proc `==`*(a1, a2: ActionInputs): bool =
   return
     (a1.kind == a2.kind and a1.kind == BoolAction and a1.boolVal == a2.boolVal) or
     (a1.kind == a2.kind and a1.kind == FloatAction and a1.floatVal == a2.floatVal) or
-    (a1.kind == a2.kind and a1.kind == Vector2Action and a1.vec2Val == a2.vec2Val)
+    (a1.kind == a2.kind and a1.kind == Vector2Action and a1.vec2Val == a2.vec2Val) or (
+      a1.kind == a2.kind and a1.kind == MonoTimeAction and
+      a1.monoTimeVal == a2.monoTimeVal
+    )
 
 proc wrapInput[T](val: T): ActionInputs =
   when T is bool:
@@ -81,6 +90,8 @@ proc wrapInput[T](val: T): ActionInputs =
     result = ActionInputs(kind: FloatAction, floatVal: val)
   elif T is Vec2f:
     result = ActionInputs(kind: Vector2Action, vec2Val: val)
+  elif T is MonoTime:
+    result = ActionInputs(kind: MonoTimeAction, monoTimeVal: val)
   else:
     {.error: "Unsupported input value type".}
 
@@ -98,6 +109,10 @@ proc run(action: Action, i: ActionInputs): bool =
     if not action.runOnlyWhenNonZero or i.vec2Val != Vec2f.default:
       action.vec2Fn(i.vec2Val)
       return true
+  of MonoTimeAction:
+    if not action.runOnlyWhenNonZero or i.monoTimeVal != MonoTime.default:
+      action.monoTimeFn(i.monoTimeVal)
+      return true
   return false
 
 proc run[A: enum](actions: Actions[A], actionName: A, i: ActionInputs): bool =
@@ -111,6 +126,9 @@ proc initFloatAction*(fn: FloatActionFn, runOnlyWhenNonZero = true): Action =
 
 proc initVector2Action*(fn: Vec2ActionFn, runOnlyWhenNonZero = true): Action =
   Action(kind: Vector2Action, vec2Fn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
+
+proc initMonoTimeAction*(fn: MonoTimeActionFn, runOnlyWhenNonZero = true): Action =
+  Action(kind: MonoTimeAction, monoTimeFn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
 type InputsToActions*[A: enum, I] = Table[I, A]
 
@@ -152,7 +170,9 @@ type ReplayPlayer*[A] = object
   setDtAction: Action
 
 proc initReplayPlayer*[A](filename: string, actions: Actions[A]): ReplayPlayer[A] =
-  ReplayPlayer[A](replayStream: newFileStream(filename, fmRead), actions: actions)
+  result =
+    ReplayPlayer[A](replayStream: newFileStream(filename, fmRead), actions: actions)
+  doAssert not result.replayStream.isNil, fmt"Could not open replay file: {filename}"
 
 proc cleanup*[A](rp: ReplayPlayer[A]) =
   rp.replayStream.close()
@@ -165,14 +185,11 @@ proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
     let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
     rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
     rp.lastPlayedI = 0
-    globalLogger.log fmt"Read new buffer at {tickN}"
 
   for i, recordedAction in rp.replayBuf.data[rp.lastPlayedI ..< replayBufSize]:
     if recordedAction == RecordedAction[A].default or recordedAction.tickN > tickN:
-      globalLogger.log fmt"Skipped action {recordedAction} at {tickN}"
       break
     elif recordedAction.tickN == tickN:
-      globalLogger.log fmt"Executing action {recordedAction} at {tickN}"
       let action = rp.actions[recordedAction.actionName]
       discard action.run(recordedAction.inputs)
       rp.lastPlayedI = i
