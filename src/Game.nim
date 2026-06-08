@@ -55,8 +55,10 @@ type
     MoveRight
     Jump
     FlyDown
-    PrintReplayBuf
     TurnCamera
+    SetDeltaTime
+    SetMonoTime
+
   AxisInputs = enum
     Mouse
 
@@ -96,13 +98,12 @@ const
     keySpace: Jump,
     keyBackslash: FlyDown,
     keyLeftShift: FlyDown,
-    keyP: PrintReplayBuf,
   }.toTable
-  axisActions: InputsToActions[ActionNames, AxisInputs] = {
-    Mouse: TurnCamera
-  }.toTable
+  axisActions: InputsToActions[ActionNames, AxisInputs] = {Mouse: TurnCamera}.toTable
 
-var state = State()
+var
+  state = State()
+  frame = FrameState()
 
 template cam(): untyped =
   state.scene.entities[state.playerI].camera
@@ -135,16 +136,18 @@ let actions: Actions[ActionNames] = {
     proc(pressed: bool) =
       player.moveDirection.y -= 1
   ),
-  PrintReplayBuf: initBoolAction(
-    proc(pressed: bool) =
-      globalLogger.log fmt"Replay buffer: {state.replayRecorder.buf}"
-  ),
   TurnCamera: initVector2Action(
     proc(turn: Vec2f) =
-        player.turnVec = vec2f(turn.x - state.prevCursorX, turn.y - state.prevCursorY)
-        (state.prevCursorX, state.prevCursorY) = (turn.x, turn.y),
-    runOnlyWhenNonZero = false
-  )
+      player.turnVec = turn
+  ),
+  SetDeltaTime: initFloatAction(
+    proc(dt: float) =
+      frame.deltaTime = dt
+  ),
+    #[SetMonoTime: initFloatAction(
+    proc(monoTime: MonoTime) =
+    frame.monoTime = monoTime
+  )]#
 }.toTable
 
 proc updateCameraAspect(win: Window, width, height: int) =
@@ -177,12 +180,13 @@ proc init(win: Window, useSpirV: bool) =
   state.startTime = now()
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
-  (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
   let date = state.startTime.format("yyyy-M-d-h-m-s")
-  state.replayRecorder = initReplayRecorder[ActionNames](fmt"{date}.{$ActionNames}.replay", actions)
-  if state.conf.showReplay.len > 0:
-    state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay)
+  if state.conf.showReplay.len == 0:
+    state.replayRecorder =
+      initReplayRecorder[ActionNames](fmt"{date}.{$ActionNames}.replay", actions)
+  else:
+    state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay, actions)
 
   template scene(): untyped =
     state.scene
@@ -227,18 +231,26 @@ proc init(win: Window, useSpirV: bool) =
 proc getAxis(win: Window, a: AxisInputs): Vec2f =
   case a
   of Mouse:
-    vec2f(win.cursorPos.x, win.cursorPos.y)
+    result =
+      vec2f(win.cursorPos.x - state.prevCursorX, win.cursorPos.y - state.prevCursorY)
+    (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
 template update() =
   state.scene.entities[state.playerI].player.turnVec = vec2f(0)
   state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
   if state.conf.showReplay.len <= 0:
+    state.replayRecorder.recordFrameData(
+      SetDeltaTime, state.frameCount, frame.deltaTime, state.conf.recordInputs
+    )
+    # state.replayRecorder.recordFrameData(SetMonoTime, state.frameCount, frame.monoTime, state.conf.recordInputs)
+
     # Mouse input
     state.replayRecorder.addRecordingInputReader(
       axisActions,
       proc(a: AxisInputs): Vec2f =
         win.getAxis(a),
       state.frameCount,
+      frame.deltaTime,
       state.conf.recordInputs,
     )
 
@@ -248,10 +260,11 @@ template update() =
       proc(k: Key): bool =
         win.isKeyDown(k),
       state.frameCount,
+      frame.deltaTime,
       state.conf.recordInputs,
     )
   else:
-    let playing = state.replayPlayer.play(actions, state.frameCount)
+    let playing = state.replayPlayer.play(state.frameCount)
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
@@ -408,7 +421,7 @@ proc main() =
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
-    var frame = FrameState()
+    frame = FrameState()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime =
