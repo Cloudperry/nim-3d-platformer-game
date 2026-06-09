@@ -57,7 +57,10 @@ proc initReplayRecorder*[A](filename: string, actions: Actions[A]): ReplayRecord
 proc `==`*[A](r1, r2: ReplayRecorder[A]): bool =
   r1.buf == r2.buf and r1.replayStream == r2.replayStream # NOTE: Doesn't compare actions
 
-proc writeFile[A](recorder: ReplayRecorder[A]) =
+proc writeFile[A](recorder: var ReplayRecorder[A]) =
+  if recorder.buf.i != 0:
+    for i in recorder.buf.i + 1 ..< replayBufSize:
+      recorder.buf.data[i] = RecordedAction[A].default
   var replayBufBytes: string
   replayBufBytes.toFlatty(recorder.buf)
   recorder.replayStream.write(replayBufBytes)
