@@ -181,22 +181,36 @@ proc cleanup*[A](rp: ReplayPlayer[A]) =
   rp.replayStream.close()
 
 proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
-  if not rp.replayStream.atEnd() and (
-    rp.replayBuf == ReplayBuffer[A].default or
-    tickN > rp.replayBuf.data[replayBufSize - 1].tickN
-  ):
-    # The size of serialized objects may not always match their size in memory with flatty, but in this case ReplayBuffer[A] is the same size both serialized and in memory
-    let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
-    rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
-    rp.lastPlayedI = -1
+  var i = 0
+  while not (rp.replayStream.atEnd() and rp.lastPlayedI >= rp.replayBuf.data.high):
+    # Make sure the buffer is filled with new data when needed
+    let bufferEmpty = rp.replayBuf == ReplayBuffer[A].default
+    let currTickPassedBuffer = tickN > rp.replayBuf.data[replayBufSize - 1].tickN
+    let currTickInNext =
+      tickN == rp.replayBuf.data[replayBufSize - 1].tickN and
+      rp.lastPlayedI >= rp.replayBuf.data.high
+    if not rp.replayStream.atEnd() and
+        (bufferEmpty or currTickPassedBuffer or currTickInNext):
+      # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
+      let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
+      rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
+      i = 0
+      rp.lastPlayedI = -1
 
-  for i, recordedAction in rp.replayBuf.data:
-    if i <= rp.lastPlayedI:
-      continue
+    # Read and play back action from replay
+    let recordedAction = rp.replayBuf.data[i]
     if recordedAction == RecordedAction[A].default or recordedAction.tickN > tickN:
-      break
+      break # End of buffer or buffer data is newer than current tick
+    elif i <= rp.lastPlayedI:
+      i = rp.lastPlayedI + 1
+        # Skip past actions that were already played during previous ticks
+      continue
+    elif recordedAction.tickN < tickN:
+      i += 1
+      continue
     elif recordedAction.tickN == tickN:
       let action = rp.actions[recordedAction.actionName]
+        # Execute action for current tick
       discard action.run(recordedAction.inputs)
       rp.lastPlayedI = i
 
