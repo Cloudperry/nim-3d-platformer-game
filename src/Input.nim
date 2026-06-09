@@ -59,7 +59,7 @@ proc `==`*[A](r1, r2: ReplayRecorder[A]): bool =
 
 proc writeFile[A](recorder: var ReplayRecorder[A]) =
   if recorder.buf.i != 0:
-    for i in recorder.buf.i + 1 ..< replayBufSize:
+    for i in recorder.buf.i ..< replayBufSize:
       recorder.buf.data[i] = RecordedAction[A].default
   var replayBufBytes: string
   replayBufBytes.toFlatty(recorder.buf)
@@ -73,7 +73,7 @@ proc recordActionAndFlushToFile[A](
     recorder.writeFile()
 
 proc cleanup*[A](rr: var ReplayRecorder[A]) =
-  if rr != ReplayRecorder[A].default:
+  if rr != ReplayRecorder[A].default and rr.buf.i != 0:
     rr.writeFile()
   rr.replayStream.close()
 
@@ -168,7 +168,7 @@ proc recordFrameData*[A, T](
 type ReplayPlayer*[A] = object
   replayStream: FileStream
   replayBuf: ReplayBuffer[A]
-  lastPlayedI: int
+  lastPlayedI: int = -1
   actions: Actions[A]
   setDtAction: Action
 
@@ -188,7 +188,7 @@ proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
     # The size of serialized objects may not always match their size in memory with flatty, but in this case ReplayBuffer[A] is the same size both serialized and in memory
     let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
     rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
-    rp.lastPlayedI = 0
+    rp.lastPlayedI = -1
 
   for i, recordedAction in rp.replayBuf.data:
     if i <= rp.lastPlayedI:
