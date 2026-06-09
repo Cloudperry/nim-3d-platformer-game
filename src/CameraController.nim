@@ -99,12 +99,13 @@ proc doCameraRotation*(e: var Entity, deltaX, deltaY: float, co: FpCameraOptions
     e.updateTransform()
 
 proc doFlyingCameraMovement*(
-    e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, deltaX, deltaY, dt: float
+    e: var Entity, co: FpCameraOptions, deltaX, deltaY, dt: float
 ) =
-  if moveDirection != vec3f(0):
+  if e.player.moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
-    let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
+    let moveDirectionPlane =
+      vec3f(e.player.moveDirection.x, 0, e.player.moveDirection.z)
     if moveDirectionPlane != vec3f(0):
       e.moveLocally(co, moveDirectionPlane, dt)
-    e.t.pos.y += moveDirection.y * co.moveSpeed * dt
+    e.t.pos.y += e.player.moveDirection.y * co.moveSpeed * dt
     e.updateTransform()

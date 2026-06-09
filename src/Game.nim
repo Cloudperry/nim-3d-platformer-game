@@ -315,6 +315,11 @@ proc keyCb(
 ) =
   if key == keyEscape and action == kaDown:
     win.shouldClose = true
+  if key == keyP and action == kaDown:
+    let pos = $state.scene.entities[state.playerI].t.pos
+    let cam = state.scene.entities[state.playerI].camera
+    let rotation = fmt"{cam.yaw}, {cam.pitch}"
+    globalLogger.log fmt"Player position: {pos}, player rotation: ({rotation})"
   elif (
     key == keyLeftAlt and win.isKeyDown(keyEnter) or
     key == keyEnter and win.isKeyDown(keyLeftAlt)

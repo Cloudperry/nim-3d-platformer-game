@@ -57,7 +57,7 @@ proc initReplayRecorder*[A](filename: string, actions: Actions[A]): ReplayRecord
 proc `==`*[A](r1, r2: ReplayRecorder[A]): bool =
   r1.buf == r2.buf and r1.replayStream == r2.replayStream # NOTE: Doesn't compare actions
 
-proc writeFile(recorder: ReplayRecorder) =
+proc writeFile[A](recorder: ReplayRecorder[A]) =
   var replayBufBytes: string
   replayBufBytes.toFlatty(recorder.buf)
   recorder.replayStream.write(replayBufBytes)
@@ -182,11 +182,14 @@ proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
     rp.replayBuf == ReplayBuffer[A].default or
     tickN > rp.replayBuf.data[replayBufSize - 1].tickN
   ):
+    # The size of serialized objects may not always match their size in memory with flatty, but in this case ReplayBuffer[A] is the same size both serialized and in memory
     let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
     rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
     rp.lastPlayedI = 0
 
-  for i, recordedAction in rp.replayBuf.data[rp.lastPlayedI ..< replayBufSize]:
+  for i, recordedAction in rp.replayBuf.data:
+    if i <= rp.lastPlayedI:
+      continue
     if recordedAction == RecordedAction[A].default or recordedAction.tickN > tickN:
       break
     elif recordedAction.tickN == tickN:

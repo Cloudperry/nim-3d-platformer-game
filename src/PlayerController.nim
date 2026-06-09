@@ -16,7 +16,7 @@ const
   forwardSpeed = 7.62'f32
   sideSpeed = 7.62'f32
 
-proc applyGroundFriction*(p: var PlayerData, dt: float) =
+proc applyGroundFriction(p: var PlayerData, dt: float) =
   let speed = p.velocity.length()
 
   if speed < 0.05'f32:
@@ -36,20 +36,8 @@ proc accelerate(
     let accelSpeed = min(accel * targetSpeed * dt.float32, addSpeed)
     p.velocity += accelSpeed * targetDir
 
-proc doWalkingPlayerMovement*(
-    e: var Entity, s: Scene, moveDirection: Vec3f, dt: float, monoTime: MonoTime
-) =
-  let moveDirectionPlane = vec3f(moveDirection.x, 0, moveDirection.z)
-  let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
-  let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
-
-  if monoTime - e.player.lastGroundTouch < coyoteTime:
-    e.player.applyGroundFriction(dt)
-    e.player.accelerate(targetDir, targetSpeed, accelerationScale, dt)
-  else:
-    e.player.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
-
-  if moveDirection.y > 0:
+proc doJumpingAndGravity(e: var Entity, dt: float, monoTime: MonoTIme) =
+  if e.player.moveDirection.y > 0:
     if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
       e.player.jumping = true
       globalLogger.log fmt"Jumping at speed {e.player.velocity.length}, grounded = false"
@@ -61,20 +49,16 @@ proc doWalkingPlayerMovement*(
       let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
       let jumpDir = vec4f(e.player.lastWallTouchDir, 0) * rotateUpMat
       globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
-      var cancelVelocity = vec3f(1)
-      if e.player.lastWallTouchDir.x != 0:
-        cancelVelocity.x = 0
-      if e.player.lastWallTouchDir.y != 0:
-        cancelVelocity.y = 0
-      e.player.velocity *= cancelVelocity
       e.player.velocity += 2 * jumpForce * jumpDir.xyz
   e.player.velocity.y -= gravity * dt
 
+proc capVelocityAndMove(e: var Entity, dt: float) =
   if e.player.velocity.length() > maxVelocity:
     let velocityNorm = e.player.velocity.normalize()
     e.player.velocity = maxVelocity * velocityNorm
   e.t.pos += e.player.velocity * dt
 
+proc handleCollisions(e: var Entity, s: Scene, monoTime: MonoTime) =
   let collision = e.resolveCollisions(s)
   if collision.colliderIds.len > 0:
     let cosPushVec = collision.pushVec.normalize().y
@@ -87,6 +71,21 @@ proc doWalkingPlayerMovement*(
       e.player.lastWallTouch = monoTime
       e.player.lastTouchedWallColliders = collision.colliderIds.toIntSet()
       e.player.lastWallTouchDir = collision.pushVec.normalize()
+
+proc doWalkingPlayerMovement*(e: var Entity, s: Scene, dt: float, monoTime: MonoTime) =
+  let moveDirectionPlane = vec3f(e.player.moveDirection.x, 0, e.player.moveDirection.z)
+  let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
+  let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
+
+  if monoTime - e.player.lastGroundTouch < coyoteTime:
+    e.player.applyGroundFriction(dt)
+    e.player.accelerate(targetDir, targetSpeed, accelerationScale, dt)
+  else:
+    e.player.accelerate(targetDir, targetSpeed, airAccelerationScale, dt)
+
+  e.doJumpingAndGravity(dt, monoTime)
+  e.capVelocityAndMove(dt)
+  e.handleCollisions(s, monoTime)
 
   e.updateTransform() # writes correct viewMat into e.camera
   (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()

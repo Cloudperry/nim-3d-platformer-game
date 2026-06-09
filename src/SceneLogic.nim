@@ -69,11 +69,10 @@ proc updatePlayer(e: var Entity, s: Scene, frame: FrameState, co: FpCameraOption
   case player.mode
   of Flying:
     e.doFlyingCameraMovement(
-      player.cameraOpts, player.moveDirection, frame.cursorDeltaX, frame.cursorDeltaY,
-      frame.deltaTime,
+      player.cameraOpts, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
     )
   of Walking:
-    e.doWalkingPlayerMovement(s, player.moveDirection, frame.deltaTime, frame.monoTime)
+    e.doWalkingPlayerMovement(s, frame.deltaTime, frame.monoTime)
 
 const components: Table[EntityKind, set[EntityKind]] = {
   BoxCollider: {BoxCollider},
