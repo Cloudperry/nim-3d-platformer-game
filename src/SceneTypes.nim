@@ -121,7 +121,7 @@ type
     moveDirection*: Vec3f
     turnVec*: Vec2f
 
-  FrameStateRef* = ref object
+  FrameState* = object
     deltaTime*: float
     monoTime*: MonoTime
 

@@ -70,7 +70,7 @@ proc initReplayRecorder*[A](replayName: string, actions: Actions[A]): ReplaySyst
     mode: Recorder, replayStream: newFileStream(filename, fmAppend), actions: actions
   )
 
-proc initInputSystem*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+proc initInputSystem*[A](actions: Actions[A]): ReplaySystem[A] =
   ReplaySystem[A](mode: InputOnly, actions: actions)
 
 proc `==`*[A](r1, r2: ReplaySystem[A]): bool =

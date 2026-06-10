@@ -45,22 +45,12 @@ type
       name: "replayName", defaultValue: "", desc: "Replay name to play back"
     .}: string
 
-  ActionNames = enum
-    MoveFwd
-    MoveBack
-    MoveLeft
-    MoveRight
-    Jump
-    FlyDown
-    TurnCamera
-    SetDeltaTime
-    SetMonoTime
-
   AxisInputs = enum
     Mouse
 
   State = object
     conf: Config
+    gameConf: GameConfig
     # Window/input
     fullscreen: bool
     monitor: Monitor
@@ -73,12 +63,6 @@ type
     vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
     elementBuffers: seq[ElementBufferRef]
     vertexArrays: seq[VertexArrayRef]
-    scene: Scene[ColoredVertex]
-    playerI: int
-    frameCount: uint64
-    replaySystem: ReplaySystem[ActionNames]
-    startTime: DateTime
-    playingReplay = true
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
@@ -100,64 +84,13 @@ const
 
 var
   state = State()
-  frame = FrameStateRef()
-
-# These templates are used as aliases for long expressions throughout this file
-template cam(): untyped =
-  state.scene.entities[state.playerI].camera
-
-template player(): untyped =
-  state.scene.entities[state.playerI].player
-
-template scene(): untyped =
-  state.scene
-
-let actions: Actions[ActionNames] = {
-  MoveFwd: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.z -= 1
-  ),
-  MoveBack: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.z += 1
-  ),
-  MoveLeft: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.x -= 1
-  ),
-  MoveRight: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.x += 1
-  ),
-  Jump: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.y += 1
-  ),
-  FlyDown: initBoolAction(
-    proc(pressed: bool) =
-      player.moveDirection.y -= 1
-  ),
-  TurnCamera: initVector2Action(
-    proc(turn: Vec2f) =
-      player.turnVec = turn
-  ),
-  SetDeltaTime: initFloatAction(
-    proc(dt: float) =
-      frame.deltaTime = dt,
-    runOnlyWhenNonZero = false,
-  ),
-  SetMonoTime: initMonoTimeAction(
-    proc(monoTime: MonoTime) =
-      frame.monoTime = monoTime,
-    runOnlyWhenNonZero = false,
-  ),
-}.toTable
+  game: GameStateRef
 
 proc updateCameraAspect(win: Window, width, height: int) =
   var ratio = width / height
-  if state.playerI != 0:
-    cam.aspectRatio = ratio
-    cam.updateProjectionMat()
+  if game != nil and game.playerI != 0:
+    game.cam.aspectRatio = ratio
+    game.cam.updateProjectionMat()
 
     glViewport(0, 0, width, height)
 
@@ -180,17 +113,14 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.ambientLightColor = s.ambientLightColor
 
 proc init(win: Window) =
-  state.startTime = now()
+  state.gameConf = GameConfig(
+    mode: state.conf.movementMode, recordInputs: state.conf.recordInputs,
+    replayName: state.conf.replayName, mouseSensitivity: state.conf.mouseSensitivity
+  )
+  game = initGame(state.gameConf)
+
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
-
-  let date = state.startTime.format("yyyy-M-d-h-m-s")
-  if state.conf.replayName.len > 0:
-    state.replaySystem = initReplayPlayer[ActionNames](state.conf.replayName, actions)
-  elif state.conf.recordInputs:
-    state.replaySystem = initReplayRecorder[ActionNames](date, actions)
-  else:
-    state.replaySystem = initInputSystem[ActionNames](date, actions)
 
   stdout.initGlobalLogger()
 
@@ -204,18 +134,14 @@ proc init(win: Window) =
     state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
   )
 
-  state.playerI = scene.loadTestScene()
-  player.mode = state.conf.movementMode
-  player.cameraOpts.sensitivity = state.conf.mouseSensitivity
-
   # Set up OpenGL buffers for passing vertex data to shaders
-  scene.setSceneUniforms()
-  scene.makeGlBuffers()
-  scene.pointLights = initShaderDataBuffer[seq[PointLight]](
+  game.scene.setSceneUniforms()
+  game.scene.makeGlBuffers()
+  game.scene.pointLights = initShaderDataBuffer[seq[PointLight]](
     state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW
   )
-  scene.loadTestSceneLights()
-  scene.pointLights.upload()
+  game.scene.loadTestSceneLights()
+  game.scene.pointLights.upload()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
@@ -234,40 +160,30 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
     (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
 proc update(win: Window) =
-  player.turnVec = vec2f(0)
-  player.moveDirection = vec3f(0)
-  if state.conf.replayName.len <= 0:
-    state.replaySystem.recordFrameData(
-      SetDeltaTime, state.frameCount, frame.deltaTime, state.conf.recordInputs
-    )
-    state.replaySystem.recordFrameData(
-      SetMonoTime, state.frameCount, frame.monoTime, state.conf.recordInputs
-    )
+  game.preUpdate(state.gameConf)
 
+  if state.conf.replayName.len == 0:
     # Mouse input
-    state.replaySystem.addRecordingInputReader(
+    game.replaySystem.addRecordingInputReader(
       axisActions,
       proc(a: AxisInputs): Vec2f =
         win.getAxis(a),
-      state.frameCount,
-      frame.deltaTime,
+      game.frameCount,
+      game.frame.deltaTime,
       state.conf.recordInputs,
     )
 
     # Keyboard input
-    state.replaySystem.addRecordingInputReader(
+    game.replaySystem.addRecordingInputReader(
       buttonActions,
       proc(k: Key): bool =
         win.isKeyDown(k),
-      state.frameCount,
-      frame.deltaTime,
+      game.frameCount,
+      game.frame.deltaTime,
       state.conf.recordInputs,
     )
-  else:
-    if state.playingReplay:
-      state.playingReplay = state.replaySystem.play(state.frameCount)
-
-  scene.update(frame)
+  
+  game.update()
 
 proc uninit() =
   for i in 0 .. state.vertexArrays.high:
@@ -277,7 +193,7 @@ proc uninit() =
   state.uniforms.cleanup()
   state.shader.cleanup()
 
-  state.replaySystem.cleanup()
+  game.replaySystem.cleanup()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
@@ -289,13 +205,13 @@ proc draw() =
 
   state.shader.use()
   state.uniforms.use(state.shader)
-  cam.setUniforms()
+  game.cam.setUniforms()
 
   for i in 0 .. state.vertexArrays.high:
     state.vertexArrays[i].use()
-    scene.models[i].setUniforms()
+    game.scene.models[i].setUniforms()
     glDrawElements(
-      GL_TRIANGLES, scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0)
+      GL_TRIANGLES, game.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0)
     )
 
 proc sizeCb(win: Window, size: tuple[w, h: int32]) =
@@ -311,8 +227,8 @@ proc keyCb(
   if key == keyEscape and action == kaDown:
     win.shouldClose = true
   if key == keyP and action == kaDown:
-    let pos = $state.scene.entities[state.playerI].t.pos
-    let cam = state.scene.entities[state.playerI].camera
+    let pos = $game.scene.entities[game.playerI].t.pos
+    let cam = game.scene.entities[game.playerI].camera
     let rotation = fmt"{cam.yaw}, {cam.pitch}"
     globalLogger.log fmt"Player position: {pos}, player rotation: ({rotation})"
   elif (
@@ -425,12 +341,11 @@ proc main() =
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
-    frame = FrameStateRef()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
-    frame.deltaTime =
+    game.frame.deltaTime =
       frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
-    frame.monoTime = currFrameStart
+    game.frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
 
     win.update()
@@ -438,7 +353,6 @@ proc main() =
     draw()
     glfw.swapBuffers(win)
 
-    state.frameCount += 1
     let currFrameEnd = getMonoTime()
     logPerf(
       updateEnd - currFrameStart,

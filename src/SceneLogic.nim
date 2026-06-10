@@ -61,7 +61,7 @@ proc addEntity*(s: var Scene, e: Entity): int =
 
   return s.entities.high
 
-proc updatePlayer(e: var Entity, s: Scene, frame: FrameStateRef) =
+proc updatePlayer(e: var Entity, s: Scene, frame: FrameState) =
   let player = e.player
   # Camera rotation
   e.doCameraRotation(player.turnVec.x, player.turnVec.y, e.player.cameraOpts)
@@ -80,7 +80,7 @@ const components: Table[EntityKind, set[EntityKind]] = {
   Root: {Root},
   Base: {Base},
 }.toTable
-proc update*(s: var Scene, frame: FrameStateRef) =
+proc update*(s: var Scene, frame: FrameState) =
   for e in s.entities.mitems:
     let entityComponents = components[e.kind]
     for component in entityComponents:
