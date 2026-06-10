@@ -8,7 +8,7 @@ from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
     GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers,
+    Math, Input, TestScenes, Containers, GameLogic
   ]
 import ./glad/gl
 
@@ -100,7 +100,7 @@ const
 
 var
   state = State()
-  frame = FrameState()
+  frame = FrameStateRef()
 
 # These templates are used as aliases for long expressions throughout this file
 template cam(): untyped =
@@ -265,7 +265,7 @@ proc update(win: Window) =
     if state.playingReplay:
       state.playingReplay = state.replaySystem.play(state.frameCount)
 
-  scene.update(frame, player.cameraOpts)
+  scene.update(frame)
 
 proc uninit() =
   for i in 0 .. state.vertexArrays.high:
@@ -423,7 +423,7 @@ proc main() =
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
-    frame = FrameState()
+    frame = FrameStateRef()
     let currFrameStart = getMonoTime()
     let frameDuration = currFrameStart - prevFrameStart
     frame.deltaTime =

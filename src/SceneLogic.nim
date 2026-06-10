@@ -61,16 +61,14 @@ proc addEntity*(s: var Scene, e: Entity): int =
 
   return s.entities.high
 
-proc updatePlayer(e: var Entity, s: Scene, frame: FrameState, co: FpCameraOptions) =
+proc updatePlayer(e: var Entity, s: Scene, frame: FrameStateRef) =
   let player = e.player
   # Camera rotation
-  e.doCameraRotation(player.turnVec.x, player.turnVec.y, co)
+  e.doCameraRotation(player.turnVec.x, player.turnVec.y, e.player.cameraOpts)
   # Player movement
   case player.mode
   of Flying:
-    e.doFlyingCameraMovement(
-      player.cameraOpts, frame.cursorDeltaX, frame.cursorDeltaY, frame.deltaTime
-    )
+    e.doFlyingCameraMovement(player.cameraOpts, frame.deltaTime)
   of Walking:
     e.doWalkingPlayerMovement(s, frame.deltaTime, frame.monoTime)
 
@@ -82,12 +80,12 @@ const components: Table[EntityKind, set[EntityKind]] = {
   Root: {Root},
   Base: {Base},
 }.toTable
-proc update*(s: var Scene, frame: FrameState, co: FpCameraOptions) =
+proc update*(s: var Scene, frame: FrameStateRef) =
   for e in s.entities.mitems:
     let entityComponents = components[e.kind]
     for component in entityComponents:
       case component
       of Player:
-        e.updatePlayer(s, frame, co)
+        e.updatePlayer(s, frame)
       of Root, Base, BoxCollider, Camera, EntityKind.PlayerController:
         discard

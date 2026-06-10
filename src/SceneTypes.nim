@@ -121,8 +121,8 @@ type
     moveDirection*: Vec3f
     turnVec*: Vec2f
 
-  FrameState* = object
-    cursorDeltaX*, cursorDeltaY*, deltaTime*: float
+  FrameStateRef* = ref object
+    deltaTime*: float
     monoTime*: MonoTime
 
 template addSafeComponentAccessors(
