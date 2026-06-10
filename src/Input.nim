@@ -181,16 +181,21 @@ proc cleanup*[A](rp: ReplayPlayer[A]) =
   rp.replayStream.close()
 
 proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
-  var i = 0
-  while not (rp.replayStream.atEnd() and rp.lastPlayedI >= rp.replayBuf.data.high):
-    # Make sure the buffer is filled with new data when needed
-    let bufferEmpty = rp.replayBuf == ReplayBuffer[A].default
-    let currTickPassedBuffer = tickN > rp.replayBuf.data[replayBufSize - 1].tickN
-    let currTickInNext =
+  result = true
+    # This function returns true while the replay is being played back and false when the replay has ended
+
+  var i = max(0, rp.lastPlayedI + 1)
+    # Skip past actions that were already played during previous ticks 
+  while true:
+    let newBufferNeeded =
+      rp.replayBuf == ReplayBuffer[A].default or
+      tickN > rp.replayBuf.data[replayBufSize - 1].tickN or
       tickN == rp.replayBuf.data[replayBufSize - 1].tickN and
       rp.lastPlayedI >= rp.replayBuf.data.high
-    if not rp.replayStream.atEnd() and
-        (bufferEmpty or currTickPassedBuffer or currTickInNext):
+    # Make sure the buffer is filled with new data when needed
+    if newBufferNeeded:
+      if rp.replayStream.atEnd():
+        return false # End of buffer
       # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
       let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
       rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
@@ -199,30 +204,13 @@ proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
 
     # Read and play back action from replay
     let recordedAction = rp.replayBuf.data[i]
-    if recordedAction == RecordedAction[A].default or recordedAction.tickN > tickN:
-      break # End of buffer or buffer data is newer than current tick
-    elif i <= rp.lastPlayedI:
-      i = rp.lastPlayedI + 1
-        # Skip past actions that were already played during previous ticks
-      continue
-    elif recordedAction.tickN < tickN:
-      i += 1
-      continue
+    if recordedAction == RecordedAction[A].default:
+      return false # End of buffer
+    elif recordedAction.tickN > tickN:
+      break # Buffer data is newer than current tick
     elif recordedAction.tickN == tickN:
-      let action = rp.actions[recordedAction.actionName]
-        # Execute action for current tick
-      discard action.run(recordedAction.inputs)
-      rp.lastPlayedI = i
+      # Execute action for current tick
+      discard rp.actions[recordedAction.actionName].run(recordedAction.inputs)
 
-  return true
-
-when isMainModule:
-  proc testAction(active: bool) =
-    if active:
-      echo "test ON"
-    else:
-      echo "test OFF"
-
-  let test = initBoolAction testAction
-  for value in [true, true, false, false, true]:
-    test.boolFn(value)
+    rp.lastPlayedI = i
+    i += 1

@@ -82,6 +82,7 @@ type
     replayPlayer: ReplayPlayer[ActionNames]
     replayRecorder: ReplayRecorder[ActionNames]
     startTime: DateTime
+    playingReplay = true
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
@@ -268,7 +269,8 @@ template update() =
       state.conf.recordInputs,
     )
   else:
-    let playing = state.replayPlayer.play(state.frameCount)
+    if state.playingReplay:
+      state.playingReplay = state.replayPlayer.play(state.frameCount)
 
   state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
 
