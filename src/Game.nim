@@ -106,11 +106,15 @@ var
   state = State()
   frame = FrameState()
 
+# These templates are used as aliases for long expressions throughout this file
 template cam(): untyped =
   state.scene.entities[state.playerI].camera
 
 template player(): untyped =
   state.scene.entities[state.playerI].player
+
+template scene(): untyped =
+  state.scene
 
 let actions: Actions[ActionNames] = {
   MoveFwd: initBoolAction(
@@ -191,9 +195,6 @@ proc init(win: Window, useSpirV: bool) =
   else:
     state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay, actions)
 
-  template scene(): untyped =
-    state.scene
-
   stdout.initGlobalLogger()
 
   let (width, height) = glfw.framebufferSize(win)
@@ -209,7 +210,7 @@ proc init(win: Window, useSpirV: bool) =
     state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
   )
 
-  state.playerI = state.scene.loadTestScene()
+  state.playerI = scene.loadTestScene()
   player.mode = state.conf.movementMode
   player.cameraOpts.sensitivity = state.conf.mouseSensitivity
 
@@ -219,7 +220,7 @@ proc init(win: Window, useSpirV: bool) =
   scene.pointLights = initShaderDataBuffer[seq[PointLight]](
     state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW
   )
-  state.scene.loadTestSceneLights()
+  scene.loadTestSceneLights()
   scene.pointLights.upload()
 
   # Enable backface culling
@@ -238,9 +239,9 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
       vec2f(win.cursorPos.x - state.prevCursorX, win.cursorPos.y - state.prevCursorY)
     (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
-template update() =
-  state.scene.entities[state.playerI].player.turnVec = vec2f(0)
-  state.scene.entities[state.playerI].player.moveDirection = vec3f(0)
+proc update(win: Window) =
+  player.turnVec = vec2f(0)
+  player.moveDirection = vec3f(0)
   if state.conf.showReplay.len <= 0:
     state.replayRecorder.recordFrameData(
       SetDeltaTime, state.frameCount, frame.deltaTime, state.conf.recordInputs
@@ -272,7 +273,7 @@ template update() =
     if state.playingReplay:
       state.playingReplay = state.replayPlayer.play(state.frameCount)
 
-  state.scene.update(frame, state.scene.entities[state.playerI].player.cameraOpts)
+  scene.update(frame, player.cameraOpts)
 
 proc uninit() =
   for i in 0 .. state.vertexArrays.high:
@@ -290,19 +291,19 @@ proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
 
 proc setUniforms(c: CameraData)
-template draw() =
+proc draw() =
   glClearColor(0.2, 0.3, 0.3, 1.0)
   glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
   state.shader.use()
   state.uniforms.use(state.shader)
-  state.scene.entities[state.playerI].camera.setUniforms()
+  cam.setUniforms()
 
   for i in 0 .. state.vertexArrays.high:
     state.vertexArrays[i].use()
-    state.scene.models[i].setUniforms()
+    scene.models[i].setUniforms()
     glDrawElements(
-      GL_TRIANGLES, state.scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0)
+      GL_TRIANGLES, scene.models[i].indices.len, GL_UNSIGNED_INT, cast[pointer](0)
     )
 
 proc sizeCb(win: Window, size: tuple[w, h: int32]) =
@@ -441,7 +442,7 @@ proc main() =
     frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
 
-    update()
+    win.update()
     let updateEnd = getMonoTime()
     draw()
     glfw.swapBuffers(win)
