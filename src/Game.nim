@@ -23,9 +23,6 @@ makeGlObjects(RaiseError, std140Alignment):
 
 type
   Config = object
-    useSpirv {.
-      name: "useSpirv", defaultValue: false, desc: "Use SPIR-V shaders with OpenGL"
-    .}: bool
     slangBinPath {.
       name: "slangBinPath",
       defaultValue: "/opt/shader-slang-bin/bin",
@@ -33,7 +30,7 @@ type
     .}: string
     movementMode {.
       name: "movementMode",
-      defaultValue: Flying,
+      defaultValue: Walking,
       desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)"
     .}: MovementMode
     mouseSensitivity {.
@@ -41,7 +38,7 @@ type
     .}: float
     recordInputs {.
       name: "recordInputs",
-      defaultValue: true,
+      defaultValue: false,
       desc: "Record a replay buffer from player inputs"
     .}: bool
     showReplay {.
@@ -183,15 +180,14 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.mainLightColor = s.dirLight.color
   state.uniforms.ambientLightColor = s.ambientLightColor
 
-proc init(win: Window, useSpirV: bool) =
+proc init(win: Window) =
   state.startTime = now()
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
 
   let date = state.startTime.format("yyyy-M-d-h-m-s")
   if state.conf.showReplay.len == 0:
-    state.replayRecorder =
-      initReplayRecorder[ActionNames](fmt"{date}.{$ActionNames}.replay", actions)
+    state.replayRecorder = initReplayRecorder[ActionNames](date, actions)
   else:
     state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay, actions)
 
@@ -201,10 +197,7 @@ proc init(win: Window, useSpirV: bool) =
   win.updateCameraAspect(width, height)
 
   # Compile and link shader and check errors
-  if not useSpirV:
-    state.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
-  else:
-    state.shader = initBinShaderProg(state.vertexShaderText, state.fragmentShaderText)
+  state.shader = initShaderProg(state.vertexShaderText, state.fragmentShaderText)
   # Get used uniforms/attributes. Bare uniforms don't work in Slang so this uses UBOs.
   state.uniforms = initShaderDataBuffer[GpuSceneUniforms](
     state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
@@ -365,16 +358,15 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
     # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(useSpirV: bool, slangBinPath = "") =
+proc compileShaders(slangBinPath = "") =
   # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
   # in Slangc better by adding init proc.
-  var opts = SlangcOptions(entryPoint: "vertexMain")
-  if not useSpirV:
-    opts.target = Glsl
-  else:
-    opts.target = SpirV
-  opts.stage = Vertex
-  opts.inFile = shadersDir / "RasterizedRenderer.slang"
+  var opts = SlangcOptions(
+    target: Glsl,
+    entryPoint: "vertexMain",
+    stage: Vertex,
+    inFile: shadersDir / "RasterizedRenderer.slang",
+  )
   if slangBinPath.len > 0:
     opts.slangPath = slangBinPath
   state.vertexShaderText = compileShaderOrRaise(opts)
@@ -427,10 +419,10 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
 
 proc main() =
   state.conf = Config.load(copyrightBanner = appDesc)
-  compileShaders(state.conf.useSpirV, state.conf.slangBinPath)
+  compileShaders(state.conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.init(state.conf.useSpirV)
+  win.init()
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:

@@ -51,7 +51,10 @@ type
     actions: Actions[A]
     replayStream: FileStream
 
-proc initReplayRecorder*[A](filename: string, actions: Actions[A]): ReplayRecorder[A] =
+proc initReplayRecorder*[A](
+    filenamePrefix: string, actions: Actions[A]
+): ReplayRecorder[A] =
+  let filename = fmt"{filenamePrefix}.{$A}.replay"
   ReplayRecorder[A](replayStream: newFileStream(filename, fmAppend), actions: actions)
 
 proc `==`*[A](r1, r2: ReplayRecorder[A]): bool =
