@@ -187,8 +187,10 @@ proc init(win: Window) =
   let date = state.startTime.format("yyyy-M-d-h-m-s")
   if state.conf.replayName.len > 0:
     state.replaySystem = initReplayPlayer[ActionNames](state.conf.replayName, actions)
-  else:
+  elif state.conf.recordInputs:
     state.replaySystem = initReplayRecorder[ActionNames](date, actions)
+  else:
+    state.replaySystem = initInputSystem[ActionNames](date, actions)
 
   stdout.initGlobalLogger()
 

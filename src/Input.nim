@@ -46,6 +46,7 @@ type
     actionName*: A
 
   ReplaySystemMode = enum
+    InputOnly
     Player
     Recorder
 
@@ -55,7 +56,7 @@ type
     actions: Actions[A]
     replayStream: FileStream
     case mode: ReplaySystemMode
-    of Recorder:
+    of Recorder, InputOnly:
       discard
     of Player:
       lastPlayedI: int = -1
@@ -68,6 +69,9 @@ proc initReplayRecorder*[A](replayName: string, actions: Actions[A]): ReplaySyst
   return ReplaySystem[A](
     mode: Recorder, replayStream: newFileStream(filename, fmAppend), actions: actions
   )
+
+proc initInputSystem*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+  ReplaySystem[A](mode: InputOnly, actions: actions)
 
 proc `==`*[A](r1, r2: ReplaySystem[A]): bool =
   r1.mode == r2.mode and r1.buf == r2.buf and r1.replayStream == r2.replayStream
