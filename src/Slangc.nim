@@ -11,10 +11,10 @@ type
     SpirV = "spirv"
 
   SlangcOptions* = object
-    inFile, entryPoint*, outFile*: string
+    inFile*, entryPoint*, outFile*: string
     slangPath*: string = "/opt/shader-slang-bin/bin"
-    target: TargetFormat
-    stage: ShaderStage
+    target*: TargetFormat
+    stage*: ShaderStage
 
 proc fileExt(t: TargetFormat): string =
   case t

@@ -41,8 +41,8 @@ type
       defaultValue: false,
       desc: "Record a replay buffer from player inputs"
     .}: bool
-    showReplay {.
-      name: "showReplay", defaultValue: "", desc: "Play back a saved replay"
+    replayName {.
+      name: "replayName", defaultValue: "", desc: "Replay name to play back"
     .}: string
 
   ActionNames = enum
@@ -76,8 +76,7 @@ type
     scene: Scene[ColoredVertex]
     playerI: int
     frameCount: uint64
-    replayPlayer: ReplayPlayer[ActionNames]
-    replayRecorder: ReplayRecorder[ActionNames]
+    replaySystem: ReplaySystem[ActionNames]
     startTime: DateTime
     playingReplay = true
 
@@ -186,10 +185,10 @@ proc init(win: Window) =
   state.fullscreen = win.size == monitorSize
 
   let date = state.startTime.format("yyyy-M-d-h-m-s")
-  if state.conf.showReplay.len == 0:
-    state.replayRecorder = initReplayRecorder[ActionNames](date, actions)
+  if state.conf.replayName.len > 0:
+    state.replaySystem = initReplayPlayer[ActionNames](state.conf.replayName, actions)
   else:
-    state.replayPlayer = initReplayPlayer[ActionNames](state.conf.showReplay, actions)
+    state.replaySystem = initReplayRecorder[ActionNames](date, actions)
 
   stdout.initGlobalLogger()
 
@@ -235,16 +234,16 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
 proc update(win: Window) =
   player.turnVec = vec2f(0)
   player.moveDirection = vec3f(0)
-  if state.conf.showReplay.len <= 0:
-    state.replayRecorder.recordFrameData(
+  if state.conf.replayName.len <= 0:
+    state.replaySystem.recordFrameData(
       SetDeltaTime, state.frameCount, frame.deltaTime, state.conf.recordInputs
     )
-    state.replayRecorder.recordFrameData(
+    state.replaySystem.recordFrameData(
       SetMonoTime, state.frameCount, frame.monoTime, state.conf.recordInputs
     )
 
     # Mouse input
-    state.replayRecorder.addRecordingInputReader(
+    state.replaySystem.addRecordingInputReader(
       axisActions,
       proc(a: AxisInputs): Vec2f =
         win.getAxis(a),
@@ -254,7 +253,7 @@ proc update(win: Window) =
     )
 
     # Keyboard input
-    state.replayRecorder.addRecordingInputReader(
+    state.replaySystem.addRecordingInputReader(
       buttonActions,
       proc(k: Key): bool =
         win.isKeyDown(k),
@@ -264,7 +263,7 @@ proc update(win: Window) =
     )
   else:
     if state.playingReplay:
-      state.playingReplay = state.replayPlayer.play(state.frameCount)
+      state.playingReplay = state.replaySystem.play(state.frameCount)
 
   scene.update(frame, player.cameraOpts)
 
@@ -276,9 +275,7 @@ proc uninit() =
   state.uniforms.cleanup()
   state.shader.cleanup()
 
-  state.replayRecorder.cleanup()
-  if state.conf.showReplay.len > 0:
-    state.replayPlayer.cleanup()
+  state.replaySystem.cleanup()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()

@@ -45,40 +45,53 @@ type
     inputs*: ActionInputs
     actionName*: A
 
+  ReplaySystemMode = enum
+    Player
+    Recorder
+
   ReplayBuffer*[A: enum] = CircularBuffer[replayBufSize, RecordedAction[A]]
-  ReplayRecorder*[A] = object
+  ReplaySystem*[A] = object
     buf*: ReplayBuffer[A]
     actions: Actions[A]
     replayStream: FileStream
+    case mode: ReplaySystemMode
+    of Recorder:
+      discard
+    of Player:
+      lastPlayedI: int = -1
 
-proc initReplayRecorder*[A](
-    filenamePrefix: string, actions: Actions[A]
-): ReplayRecorder[A] =
-  let filename = fmt"{filenamePrefix}.{$A}.replay"
-  ReplayRecorder[A](replayStream: newFileStream(filename, fmAppend), actions: actions)
+proc getReplayFilename[A: enum](actionNames: typedesc[A], replayName: string): string =
+  fmt"{replayName}.{$actionNames}.replay"
 
-proc `==`*[A](r1, r2: ReplayRecorder[A]): bool =
-  r1.buf == r2.buf and r1.replayStream == r2.replayStream # NOTE: Doesn't compare actions
+proc initReplayRecorder*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+  let filename = A.getReplayFilename(replayName)
+  return ReplaySystem[A](
+    mode: Recorder, replayStream: newFileStream(filename, fmAppend), actions: actions
+  )
 
-proc writeFile[A](recorder: var ReplayRecorder[A]) =
-  if recorder.buf.i != 0:
-    for i in recorder.buf.i ..< replayBufSize:
-      recorder.buf.data[i] = RecordedAction[A].default
+proc `==`*[A](r1, r2: ReplaySystem[A]): bool =
+  r1.mode == r2.mode and r1.buf == r2.buf and r1.replayStream == r2.replayStream
+    # NOTE: Doesn't compare actions
+
+proc writeFile[A](rs: var ReplaySystem[A]) =
+  if rs.buf.i != 0:
+    for i in rs.buf.i ..< replayBufSize:
+      rs.buf.data[i] = RecordedAction[A].default
   var replayBufBytes: string
-  replayBufBytes.toFlatty(recorder.buf)
-  recorder.replayStream.write(replayBufBytes)
+  replayBufBytes.toFlatty(rs.buf)
+  rs.replayStream.write(replayBufBytes)
 
 proc recordActionAndFlushToFile[A](
-    recorder: var ReplayRecorder[A], action: sink RecordedAction[A]
+    rs: var ReplaySystem[A], action: sink RecordedAction[A]
 ) =
-  recorder.buf.push action
-  if recorder.buf.i == 0:
-    recorder.writeFile()
+  rs.buf.push action
+  if rs.buf.i == 0:
+    rs.writeFile()
 
-proc cleanup*[A](rr: var ReplayRecorder[A]) =
-  if rr != ReplayRecorder[A].default and rr.buf.i != 0:
-    rr.writeFile()
-  rr.replayStream.close()
+proc cleanup*[A](rs: var ReplaySystem[A]) =
+  if rs.mode == Recorder and rs != ReplaySystem[A].default and rs.buf.i != 0:
+    rs.writeFile()
+  rs.replayStream.close()
 
 proc `==`*(a1, a2: ActionInputs): bool =
   return
@@ -139,7 +152,7 @@ proc initMonoTimeAction*(fn: MonoTimeActionFn, runOnlyWhenNonZero = true): Actio
 type InputsToActions*[A: enum, I] = Table[I, A]
 
 proc addRecordingInputReader*[A, I: enum, T](
-    recorder: var ReplayRecorder[A],
+    rs: var ReplaySystem[A],
     inputsToActions: InputsToActions[A, I],
     reader: proc(inputName: I): T,
     tickN: uint64,
@@ -147,16 +160,16 @@ proc addRecordingInputReader*[A, I: enum, T](
     recordingEnabled: bool,
 ) =
   for inputName, actionName in inputsToActions.pairs:
-    if actionName in recorder.actions:
+    if actionName in rs.actions:
       let input = reader(inputName).wrapInput()
-      let actionExecuted = recorder.actions.run(actionName, input)
+      let actionExecuted = rs.actions.run(actionName, input)
       if recordingEnabled and actionExecuted:
-        recorder.recordActionAndFlushToFile RecordedAction[A](
+        rs.recordActionAndFlushToFile RecordedAction[A](
           actionName: actionName, inputs: input, tickN: tickN
         )
 
 proc recordFrameData*[A, T](
-    recorder: var ReplayRecorder[A],
+    rs: var ReplaySystem[A],
     setterName: A,
     tickN: uint64,
     data: T,
@@ -164,56 +177,47 @@ proc recordFrameData*[A, T](
 ) =
   if recordingEnabled:
     let input = wrapInput(data)
-    recorder.recordActionAndFlushToFile RecordedAction[A](
+    rs.recordActionAndFlushToFile RecordedAction[A](
       actionName: setterName, inputs: input, tickN: tickN
     )
 
-type ReplayPlayer*[A] = object
-  replayStream: FileStream
-  replayBuf: ReplayBuffer[A]
-  lastPlayedI: int = -1
-  actions: Actions[A]
-  setDtAction: Action
-
-proc initReplayPlayer*[A](filename: string, actions: Actions[A]): ReplayPlayer[A] =
-  result =
-    ReplayPlayer[A](replayStream: newFileStream(filename, fmRead), actions: actions)
+proc initReplayPlayer*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+  let filename = A.getReplayFilename(replayName)
+  result = ReplaySystem[A](
+    mode: Player, replayStream: newFileStream(filename, fmRead), actions: actions
+  )
   doAssert not result.replayStream.isNil, fmt"Could not open replay file: {filename}"
 
-proc cleanup*[A](rp: ReplayPlayer[A]) =
-  rp.replayStream.close()
-
-proc play*[A](rp: var ReplayPlayer[A], tickN: uint64): bool =
+proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
   result = true
     # This function returns true while the replay is being played back and false when the replay has ended
 
-  var i = max(0, rp.lastPlayedI + 1)
+  var i = max(0, rs.lastPlayedI + 1)
     # Skip past actions that were already played during previous ticks 
   while true:
     let newBufferNeeded =
-      rp.replayBuf == ReplayBuffer[A].default or
-      tickN > rp.replayBuf.data[replayBufSize - 1].tickN or
-      tickN == rp.replayBuf.data[replayBufSize - 1].tickN and
-      rp.lastPlayedI >= rp.replayBuf.data.high
+      rs.buf == ReplayBuffer[A].default or tickN > rs.buf.data[replayBufSize - 1].tickN or
+      tickN == rs.buf.data[replayBufSize - 1].tickN and
+      rs.lastPlayedI >= rs.buf.data.high
     # Make sure the buffer is filled with new data when needed
     if newBufferNeeded:
-      if rp.replayStream.atEnd():
+      if rs.replayStream.atEnd():
         return false # End of buffer
       # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
-      let replayBufBytes = rp.replayStream.readStr(sizeof ReplayBuffer[A])
-      rp.replayBuf = replayBufBytes.fromFlatty(ReplayBuffer[A])
+      let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
+      rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
       i = 0
-      rp.lastPlayedI = -1
+      rs.lastPlayedI = -1
 
     # Read and play back action from replay
-    let recordedAction = rp.replayBuf.data[i]
+    let recordedAction = rs.buf.data[i]
     if recordedAction == RecordedAction[A].default:
       return false # End of buffer
     elif recordedAction.tickN > tickN:
       break # Buffer data is newer than current tick
     elif recordedAction.tickN == tickN:
       # Execute action for current tick
-      discard rp.actions[recordedAction.actionName].run(recordedAction.inputs)
+      discard rs.actions[recordedAction.actionName].run(recordedAction.inputs)
 
-    rp.lastPlayedI = i
+    rs.lastPlayedI = i
     i += 1
