@@ -167,5 +167,5 @@ proc update*(game: var GameStateRef) =
   game.scene.update(game.frame)
   game.frameCount += 1
 
-proc uninit(game: GameStateRef) =
-  game.replaySystem.cleanup()
+proc deinit(game: GameStateRef) =
+  game.replaySystem.deinit()

@@ -93,7 +93,7 @@ proc recordActionAndFlushToFile[A](
   if rs.buf.i == 0:
     rs.writeFile()
 
-proc cleanup*[A](rs: var ReplaySystem[A]) =
+proc deinit*[A](rs: var ReplaySystem[A]) =
   if rs.mode == Recorder and rs != ReplaySystem[A].default and rs.buf.i != 0:
     rs.writeFile()
   rs.replayStream.close()

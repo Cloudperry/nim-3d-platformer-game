@@ -118,12 +118,12 @@ template withShader*(s: ShaderRef, body: untyped) =
   body
   glUseProgram(0)
 
-proc cleanup*(s: var ShaderRef) =
+proc deinit*(s: var ShaderRef) =
   glDeleteProgram(s.id)
   s = nil
 
 proc `=dispose`*(s: var ShaderRef) =
-  s.cleanup()
+  s.deinit()
 
 # ======================================== Automatic GPU buffer alignment generator ========================================
 const std140Alignment* = collect:
@@ -458,12 +458,12 @@ proc add*[T1, T2](b: var ShaderDataBufferRef[T1], value: T2) =
   else:
     b.data[].add value
 
-proc cleanup*(s: var ShaderDataBufferRef) =
+proc deinit*(s: var ShaderDataBufferRef) =
   glDeleteBuffers(1, addr s.id)
   s = nil
 
 proc `=dispose`*(s: var ShaderDataBufferRef) =
-  s.cleanup()
+  s.deinit()
 
 # ======================================== VBO class ========================================
 type
@@ -580,12 +580,12 @@ proc use*[T](b: VertexBufferRef[T]) =
   glBindVertexBuffer(b.slot, b.id, 0, offset)
   glBindBuffer(GL_ARRAY_BUFFER, 0) # VBO can be unbound as its now part of the VAO
 
-proc cleanup*[T](b: var VertexBufferRef[T]) =
+proc deinit*[T](b: var VertexBufferRef[T]) =
   glDeleteBuffers(1, addr b.id)
   b = nil
 
 proc `=dispose`*[T](b: var VertexBufferRef[T]) =
-  b.cleanup()
+  b.deinit()
 
 type
   InitEBuf* = tuple[data: seq[GLuint], bufType: GLenum]
@@ -613,12 +613,12 @@ proc initElementBuffer*(
     let initBuf = initBufOpt.get
     result.upload(initBuf.data, initBuf.bufType)
 
-proc cleanup*(b: var ElementBufferRef) =
+proc deinit*(b: var ElementBufferRef) =
   glDeleteBuffers(1, addr b.id)
   b = nil
 
 proc `=dispose`*(b: var ElementBufferRef) =
-  b.cleanup()
+  b.deinit()
 
 # ======================================== VAO class ========================================
 type VertexArrayRef* = ref object
@@ -629,12 +629,12 @@ proc initVertexArray*(): VertexArrayRef =
   result = new VertexArrayRef
   glGenVertexArrays(1, addr result.id)
 
-proc cleanup*(a: var VertexArrayRef) =
+proc deinit*(a: var VertexArrayRef) =
   glDeleteVertexArrays(1, addr a.id)
   a = nil
 
 proc `=dispose`*(a: var VertexArrayRef) =
-  a.cleanup()
+  a.deinit()
 
 proc isActive*(a: VertexArrayRef): bool =
   var currentVertexArrayIdStore: GLint

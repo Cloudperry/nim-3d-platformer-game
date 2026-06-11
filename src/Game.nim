@@ -84,7 +84,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.mainLightColor = s.dirLight.color
   state.uniforms.ambientLightColor = s.ambientLightColor
 
-proc initGame(win: Window) =
+proc init(win: Window) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
 
@@ -151,15 +151,15 @@ proc update(win: Window) =
 
   game.update()
 
-proc uninit() =
+proc deinit() =
   for i in 0 .. state.vertexArrays.high:
-    state.vertexBuffers[i].cleanup()
-    state.elementBuffers[i].cleanup()
-    state.vertexArrays[i].cleanup()
-  state.uniforms.cleanup()
-  state.shader.cleanup()
+    state.vertexBuffers[i].deinit()
+    state.elementBuffers[i].deinit()
+    state.vertexArrays[i].deinit()
+  state.uniforms.deinit()
+  state.shader.deinit()
 
-  game.replaySystem.cleanup()
+  game.replaySystem.deinit()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
@@ -303,7 +303,7 @@ proc main() =
   compileShaders(game.conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.initGame()
+  win.init()
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
@@ -327,7 +327,7 @@ proc main() =
     )
 
     glfw.pollEvents()
-  uninit()
+  deinit()
   glfw.terminate()
 
 main()
