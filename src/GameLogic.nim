@@ -3,16 +3,37 @@ import
     os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
   ]
 import std/times except `getTime`
-import pkg/[glm, glfw, confutils, flatty]
-from pkg/glfw/wrapper import `rawMouseMotionSupported`
+import pkg/[glm, confutils, flatty]
 import
   ./[
-    GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers,
+    GlUtils, Shapes, SceneLogic, PlayerController, CameraController, Input, TestScenes,
+    Containers,
   ]
-import ./glad/gl
 
 type
+  Config = object
+    slangBinPath* {.
+      name: "slangBinPath",
+      defaultValue: "/opt/shader-slang-bin/bin",
+      desc: "Slang shader compiler path"
+    .}: string
+    movementMode* {.
+      name: "movementMode",
+      defaultValue: Walking,
+      desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)"
+    .}: MovementMode
+    mouseSensitivity* {.
+      name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity"
+    .}: float
+    recordInputs* {.
+      name: "recordInputs",
+      defaultValue: false,
+      desc: "Record a replay buffer from player inputs"
+    .}: bool
+    replayName* {.
+      name: "replayName", defaultValue: "", desc: "Replay name to play back"
+    .}: string
+
   ActionNames* = enum
     MoveFwd
     MoveBack
@@ -24,13 +45,8 @@ type
     SetDeltaTime
     SetMonoTime
 
-  GameConfig* = object
-    recordInputs*: bool
-    replayName*: string
-    mode*: MovementMode
-    mouseSensitivity*: float
-
   GameStateRef* = ref object # Renderer state and wrapper objects
+    conf*: Config
     scene*: Scene[ColoredVertex]
     actions*: Actions[ActionNames]
     playerI*: int
@@ -42,6 +58,10 @@ type
     # TODO: Move these inside the player entity as these settings only affect how the player controller behaves
     mouseSensitivity*: float
     mode*: MovementMode
+
+const
+  appDesc* = "Nim OpenGL FPS game"
+  appName* = "NimFpsGame"
 
 # These templates are used as aliases for long expressions throughout this file
 template cam*(game: GameStateRef): untyped =
@@ -98,32 +118,34 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
     ),
   }.toTable
 
-proc initGame*(conf: GameConfig): GameStateRef =
+proc initGameState*(): GameStateRef =
   result = GameStateRef()
+  result.conf = Config.load(copyrightBanner = appDesc)
   result.startTime = now()
 
   result.playerI = result.scene.loadTestScene()
-  result.player.mode = conf.mode
-  result.player.cameraOpts.sensitivity = conf.mouseSensitivity
+  result.player.mode = result.conf.movementMode
+  result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
 
   let date = result.startTime.format("yyyy-M-d-h-m-s")
   result.actions = result.makeActions()
-  if conf.replayName.len > 0:
-    result.replaySystem = initReplayPlayer[ActionNames](conf.replayName, result.actions)
-  elif conf.recordInputs:
+  if result.conf.replayName.len > 0:
+    result.replaySystem =
+      initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
+  elif result.conf.recordInputs:
     result.replaySystem = initReplayRecorder[ActionNames](date, result.actions)
   else:
     result.replaySystem = initInputSystem[ActionNames](result.actions)
 
-proc preUpdate*(game: GameStateRef, conf: GameConfig) =
+proc preUpdate*(game: GameStateRef) =
   game.player.turnVec = vec2f(0)
   game.player.moveDirection = vec3f(0)
-  if conf.replayName.len <= 0:
+  if game.conf.replayName.len <= 0:
     game.replaySystem.recordFrameData(
-      SetDeltaTime, game.frameCount, game.frame.deltaTime, conf.recordInputs
+      SetDeltaTime, game.frameCount, game.frame.deltaTime, game.conf.recordInputs
     )
     game.replaySystem.recordFrameData(
-      SetMonoTime, game.frameCount, game.frame.monoTime, conf.recordInputs
+      SetMonoTime, game.frameCount, game.frame.monoTime, game.conf.recordInputs
     )
   else:
     if game.playingReplay:

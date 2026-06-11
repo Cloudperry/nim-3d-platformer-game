@@ -22,36 +22,10 @@ makeGlObjects(RaiseError, std140Alignment):
     ambientLightColor: Vec3f
 
 type
-  Config = object
-    slangBinPath {.
-      name: "slangBinPath",
-      defaultValue: "/opt/shader-slang-bin/bin",
-      desc: "Slang shader compiler path"
-    .}: string
-    movementMode {.
-      name: "movementMode",
-      defaultValue: Walking,
-      desc: "Movement mode (Flying = flying camera, Walking = FPS game controls)"
-    .}: MovementMode
-    mouseSensitivity {.
-      name: "mouseSensitivity", defaultValue: 2.0, desc: "Mouse sensitivity"
-    .}: float
-    recordInputs {.
-      name: "recordInputs",
-      defaultValue: false,
-      desc: "Record a replay buffer from player inputs"
-    .}: bool
-    replayName {.
-      name: "replayName", defaultValue: "", desc: "Replay name to play back"
-    .}: string
-
   AxisInputs = enum
     Mouse
 
-  State = object
-    conf: Config
-    gameConf: GameConfig
-    # Window/input
+  State = object # Window/input
     fullscreen: bool
     monitor: Monitor
     prevWinProps: tuple[x, y, w, h, refreshRate: int]
@@ -66,8 +40,6 @@ type
 
 const
   shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
-  appDesc = "Nim OpenGL FPS game"
-  appName = "NimFpsGame"
   buttonActions: InputsToActions[ActionNames, Key] = {
     keyComma: MoveFwd,
     keyW: MoveFwd,
@@ -112,15 +84,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.mainLightColor = s.dirLight.color
   state.uniforms.ambientLightColor = s.ambientLightColor
 
-proc init(win: Window) =
-  state.gameConf = GameConfig(
-    mode: state.conf.movementMode,
-    recordInputs: state.conf.recordInputs,
-    replayName: state.conf.replayName,
-    mouseSensitivity: state.conf.mouseSensitivity,
-  )
-  game = initGame(state.gameConf)
-
+proc initGame(win: Window) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
 
@@ -162,9 +126,9 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
     (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
 proc update(win: Window) =
-  game.preUpdate(state.gameConf)
+  game.preUpdate()
 
-  if state.conf.replayName.len == 0:
+  if game.conf.replayName.len == 0:
     # Mouse input
     game.replaySystem.addRecordingInputReader(
       axisActions,
@@ -172,7 +136,7 @@ proc update(win: Window) =
         win.getAxis(a),
       game.frameCount,
       game.frame.deltaTime,
-      state.conf.recordInputs,
+      game.conf.recordInputs,
     )
 
     # Keyboard input
@@ -182,7 +146,7 @@ proc update(win: Window) =
         win.isKeyDown(k),
       game.frameCount,
       game.frame.deltaTime,
-      state.conf.recordInputs,
+      game.conf.recordInputs,
     )
 
   game.update()
@@ -335,11 +299,11 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   return (win, cfg)
 
 proc main() =
-  state.conf = Config.load(copyrightBanner = appDesc)
-  compileShaders(state.conf.slangBinPath)
+  game = initGameState()
+  compileShaders(game.conf.slangBinPath)
 
   var (win, cfg) = initGlfwAndGlad()
-  win.init()
+  win.initGame()
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
