@@ -120,17 +120,14 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
   }.toTable
 
 proc initGameState*(): GameStateRef =
+  # Initialize game state and load config
   result = GameStateRef()
   result.conf = Config.load(copyrightBanner = appDesc)
   result.startTime = now()
 
-  result.playerI = result.scene.loadTestScene()
-  result.player.mode = result.conf.movementMode
-  result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
-
+  # Initialize replay system and save/restore config when recording/playing a replay
   let date = result.startTime.format("yyyy-M-d-h-m-s")
   result.actions = result.makeActions()
-
   if result.conf.replayName.len > 0:
     result.replaySystem =
       initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
@@ -146,6 +143,11 @@ proc initGameState*(): GameStateRef =
     result.confStorage.saveState(result.conf)
   else:
     result.replaySystem = initInputSystem[ActionNames](result.actions)
+
+  # Load scene and set player settings from config
+  result.playerI = result.scene.loadTestScene()
+  result.player.mode = result.conf.movementMode
+  result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
 
 proc preUpdate*(game: GameStateRef) =
   game.player.turnVec = vec2f(0)
