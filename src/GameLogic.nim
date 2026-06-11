@@ -47,6 +47,7 @@ type
 
   GameStateRef* = ref object # Renderer state and wrapper objects
     conf*: Config
+    confStorage*: StateStorage
     scene*: Scene[ColoredVertex]
     actions*: Actions[ActionNames]
     playerI*: int
@@ -129,11 +130,20 @@ proc initGameState*(): GameStateRef =
 
   let date = result.startTime.format("yyyy-M-d-h-m-s")
   result.actions = result.makeActions()
+
   if result.conf.replayName.len > 0:
     result.replaySystem =
       initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
+    result.confStorage = initStateStorage[Config](result.conf.replayName)
+    let replayName = result.conf.replayName
+    result.conf = result.confStorage.loadState(Config)
+      # Restore config that was used when the replay was recorded
+    result.conf.recordInputs = false
+    result.conf.replayName = replayName
   elif result.conf.recordInputs:
     result.replaySystem = initReplayRecorder[ActionNames](date, result.actions)
+    result.confStorage = initStateStorage[Config](date)
+    result.confStorage.saveState(result.conf)
   else:
     result.replaySystem = initInputSystem[ActionNames](result.actions)
 

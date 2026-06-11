@@ -61,8 +61,10 @@ type
     of Player:
       lastPlayedI: int = -1
 
-proc getReplayFilename[A: enum](actionNames: typedesc[A], replayName: string): string =
-  fmt"{replayName}.{$actionNames}.replay"
+proc getReplayFilename[O: enum | object](
+    storableObjectName: typedesc[O], replayName: string
+): string =
+  fmt"{replayName}.{$storableObjectName}.replay"
 
 proc initReplayRecorder*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
   let filename = A.getReplayFilename(replayName)
@@ -81,8 +83,7 @@ proc writeFile[A](rs: var ReplaySystem[A]) =
   if rs.buf.i != 0:
     for i in rs.buf.i ..< replayBufSize:
       rs.buf.data[i] = RecordedAction[A].default
-  var replayBufBytes: string
-  replayBufBytes.toFlatty(rs.buf)
+  let replayBufBytes = toFlatty(rs.buf)
   rs.replayStream.write(replayBufBytes)
 
 proc recordActionAndFlushToFile[A](
@@ -225,3 +226,20 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
 
     rs.lastPlayedI = i
     i += 1
+
+# The "class" below should probably handle restoring only state that should be saved in the replay.
+# That would require for example marking the state/config fields that are to be saved with pragmas
+# and traversing the object fields in a macro.
+type StateStorage* = object
+  stateFilename: string
+
+proc initStateStorage*[S: object](replayName: string): StateStorage =
+  StateStorage(stateFilename: S.getReplayFilename(replayName))
+
+proc saveState*[S: object](ss: StateStorage, so: S) =
+  let stateFileBytes = toFlatty(so)
+  writeFile(ss.stateFilename, stateFileBytes)
+
+proc loadState*[S: object](ss: StateStorage, stateObjectT: typedesc[S]): S =
+  let stateFileBytes = readFile(ss.stateFilename)
+  return stateFileBytes.fromFlatty(S)
