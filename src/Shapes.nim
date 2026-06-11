@@ -1,7 +1,6 @@
-import std/[sugar, lenientops]
 import glad/gl
 import pkg/glm
-import ./[SceneTypes, SceneLogic, GlUtils]
+import ./[SceneLogic, GlUtils]
 
 type SimpleModel* = tuple[vertices: seq[ColoredVertex], indices: seq[GLuint]]
 

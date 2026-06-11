@@ -1,5 +1,5 @@
 import pkg/glm
-import ./[SceneTypes, Game, Shapes, SceneLogic, CameraController]
+import ./[SceneTypes, Shapes, SceneLogic, CameraController]
 
 const shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
 

@@ -1,6 +1,6 @@
 import std/[tables, streams, strformat, times, monotimes]
 import pkg/[glm, flatty]
-import ./[Containers, Logger]
+import ./[Containers]
 
 const replayBufSize = 1024
 

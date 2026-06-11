@@ -1,14 +1,11 @@
-import
-  std/[
-    os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
-  ]
+import std/[os, strformat, options, math, monotimes, importutils, tables, times]
 import std/times except `getTime`
-import pkg/[glm, glfw, confutils, flatty]
+import pkg/[glm, glfw, confutils]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
-    GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers, GameLogic,
+    GlUtils, Slangc, Logger, SceneLogic, CameraController, Math, Input, TestScenes,
+    GameLogic,
   ]
 import ./glad/gl
 

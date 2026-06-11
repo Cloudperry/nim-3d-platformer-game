@@ -1,6 +1,6 @@
-import std/[times, monotimes, strformat, intsets]
+import std/[times, monotimes, intsets]
 import pkg/[glm]
-import ./[SceneTypes, Logger, CameraController, Physics]
+import ./[SceneTypes, CameraController, Physics]
 
 const
   maxVelocity = 88.8888889'f32

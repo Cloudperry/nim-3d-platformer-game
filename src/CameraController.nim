@@ -1,7 +1,6 @@
-import std/strformat
 import pkg/[glm]
 import ./glad/gl
-import ./[SceneTypes, Logger]
+import ./[SceneTypes]
 
 proc perspectiveRH*[T](fovy, aspect, zNear, zFar: T): Mat4[T] =
   let tanHalfFovy = tan(fovy / T(2))

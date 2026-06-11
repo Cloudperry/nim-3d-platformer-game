@@ -1,14 +1,6 @@
-import
-  std/[
-    os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
-  ]
-import std/times except `getTime`
-import pkg/[glm, confutils, flatty]
-import
-  ./[
-    GlUtils, Shapes, SceneLogic, PlayerController, CameraController, Input, TestScenes,
-    Containers,
-  ]
+import std/[os, options, math, monotimes, tables, times]
+import pkg/[glm, confutils]
+import ./[SceneLogic, Input, TestScenes]
 
 type
   Config = object

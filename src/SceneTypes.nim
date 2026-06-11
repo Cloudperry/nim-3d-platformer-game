@@ -1,8 +1,8 @@
-import std/[strformat, options, lenientops, monotimes, intsets]
+import std/[strformat, options, monotimes, intsets]
 import std/times except `getTime`
 import ./glad/gl
 import pkg/glm
-import ./[GlUtils, Logger]
+import ./[GlUtils]
 
 const degToRad* = PI / 180
 type

@@ -1,7 +1,6 @@
 import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros, math]
 import pkg/glm
 import ./glad/gl
-import Logger
 
 # ======================================== Shader class and compilation error handling ========================================
 proc checkErrorAndRaise*(shader: GLuint) =

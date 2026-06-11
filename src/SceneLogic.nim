@@ -1,6 +1,6 @@
 import std/[options, tables]
 import pkg/[glm]
-import ./[SceneTypes, PlayerController, CameraController, GlUtils, Logger]
+import ./[SceneTypes, PlayerController, CameraController, GlUtils]
 import ./glad/gl
 export SceneTypes
 

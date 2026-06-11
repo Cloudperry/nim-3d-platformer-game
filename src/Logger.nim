@@ -1,4 +1,4 @@
-import std/[os, times, options, strformat, algorithm, math, lenientops, sequtils]
+import std/[times, options, strformat, algorithm, math, lenientops]
 import ./Containers
 
 # Extend this logging library? It could just write the "terminal status line" in the logs normally when isatty(f) is false.
