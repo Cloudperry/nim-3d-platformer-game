@@ -8,7 +8,7 @@ from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
     GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers, GameLogic
+    Math, Input, TestScenes, Containers, GameLogic,
   ]
 import ./glad/gl
 
@@ -114,8 +114,10 @@ proc setSceneUniforms[T](s: Scene[T]) =
 
 proc init(win: Window) =
   state.gameConf = GameConfig(
-    mode: state.conf.movementMode, recordInputs: state.conf.recordInputs,
-    replayName: state.conf.replayName, mouseSensitivity: state.conf.mouseSensitivity
+    mode: state.conf.movementMode,
+    recordInputs: state.conf.recordInputs,
+    replayName: state.conf.replayName,
+    mouseSensitivity: state.conf.mouseSensitivity,
   )
   game = initGame(state.gameConf)
 
@@ -182,7 +184,7 @@ proc update(win: Window) =
       game.frame.deltaTime,
       state.conf.recordInputs,
     )
-  
+
   game.update()
 
 proc uninit() =

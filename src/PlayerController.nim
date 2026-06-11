@@ -40,7 +40,6 @@ proc doJumpingAndGravity(e: var Entity, dt: float, monoTime: MonoTIme) =
   if e.player.moveDirection.y > 0:
     if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
       e.player.jumping = true
-      globalLogger.log fmt"Jumping at speed {e.player.velocity.length}, grounded = false"
       e.player.velocity.y += jumpForce
     elif monoTime - e.player.lastWallTouch < coyoteTime and
         len(e.player.lastTouchedWallColliders * e.player.lastJumpedWallColliders) == 0:
@@ -48,7 +47,6 @@ proc doJumpingAndGravity(e: var Entity, dt: float, monoTime: MonoTIme) =
       let rotateAxis = cross(vec3f(0, 1, 0), e.player.lastWallTouchDir)
       let rotateUpMat = rotate(mat4f(), 45.0 * degToRad, rotateAxis)
       let jumpDir = vec4f(e.player.lastWallTouchDir, 0) * rotateUpMat
-      globalLogger.log fmt"Wall jumping towards {jumpDir}, grounded = false"
       e.player.velocity += 2 * jumpForce * jumpDir.xyz
   e.player.velocity.y -= gravity * dt
 

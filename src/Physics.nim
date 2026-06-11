@@ -51,11 +51,8 @@ proc resolveCollisions*(e: var Entity, s: Scene): CollisionResult =
     let pen = e.getPenetrationVector(collider)
     if pen.x <= 0 - nextDown(pen.x) or pen.y <= 0 - nextDown(pen.y) or
         pen.z <= 0 - nextDown(pen.z):
-      #if p.collider in collider:
-      #globalLogger.log fmt"Fake colliding with {s.colliders[i]} with pen {pen}"
       continue
 
-    #globalLogger.log fmt"Colliding with {s.colliders[i]} with pen {pen}"
     if min([pen.x, pen.y, pen.z]) == pen.x:
       let signX = sign(e.t.pos.x - collider.t.pos.x)
       result.pushVec.x += nextDown(pen.x * signX)

@@ -23,14 +23,14 @@ type
     TurnCamera
     SetDeltaTime
     SetMonoTime
+
   GameConfig* = object
     recordInputs*: bool
     replayName*: string
     mode*: MovementMode
     mouseSensitivity*: float
 
-  GameStateRef* = ref object
-    # Renderer state and wrapper objects
+  GameStateRef* = ref object # Renderer state and wrapper objects
     scene*: Scene[ColoredVertex]
     actions*: Actions[ActionNames]
     playerI*: int
@@ -42,7 +42,7 @@ type
     # TODO: Move these inside the player entity as these settings only affect how the player controller behaves
     mouseSensitivity*: float
     mode*: MovementMode
-  
+
 # These templates are used as aliases for long expressions throughout this file
 template cam*(game: GameStateRef): untyped =
   game.scene.entities[game.playerI].camera
@@ -56,7 +56,7 @@ template playerE*(game: GameStateRef): untyped =
 template scene*(game: GameStateRef): untyped =
   game.scene
 
-proc makeActions*(game: GameStateRef): Actions[ActionNames] = 
+proc makeActions*(game: GameStateRef): Actions[ActionNames] =
   return {
     MoveFwd: initBoolAction(
       proc(pressed: bool) =
