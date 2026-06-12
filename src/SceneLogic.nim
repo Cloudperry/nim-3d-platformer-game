@@ -25,6 +25,11 @@ proc initPlayerE*(
     parentIds: @[rootID],
   )
 
+proc initBoxColliderData*(
+    halfExtents: Vec3f, tags = @[LevelGeo]
+): BoxColliderData =
+  BoxColliderData(halfExtents: halfExtents, tags: tags)
+
 proc initBoxColliderE*(t: Transform, bc: BoxColliderData): Entity =
   Entity(kind: BoxCollider, t: t, boxColliderData: some bc, parentIds: @[rootId])
 

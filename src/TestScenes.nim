@@ -57,20 +57,20 @@ proc loadTestScene*(scene: var Scene): int =
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: @[Ground]),
+    initBoxColliderData(halfExtents = vec3f(40, 0.5, 40), tags = @[Ground]),
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: @[Ground]),
+    initBoxColliderData(halfExtents = vec3f(40, 0.5, 40), tags = @[Ground]),
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    BoxColliderData(halfExtents: vec3f(40, 7, 1), tags: @[LevelGeo]),
+    initBoxColliderData(halfExtents = vec3f(40, 7, 1)),
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
-  let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25), tags: @[LevelGeo])
+  let collider = initBoxColliderData(halfExtents = vec3f(0.25, 2.0, 0.25))
   var playerE = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
 
   playerE.updateTransform()

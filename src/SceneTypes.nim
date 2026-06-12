@@ -115,7 +115,7 @@ type
 
   BoxColliderData* = object
     halfExtents*: Vec3f
-    tags*: seq[ColliderTags] = @[LevelGeo]
+    tags*: seq[ColliderTags]
 
   CollisionResult* = object
     pushVec*: Vec3f
