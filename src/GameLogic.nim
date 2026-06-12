@@ -3,7 +3,7 @@ import pkg/[glm, confutils]
 import ./[SceneLogic, Input, TestScenes]
 
 type
-  Config = object
+  Config* = object
     slangBinPath* {.
       name: "slangBinPath",
       defaultValue: "/opt/shader-slang-bin/bin",
@@ -111,10 +111,14 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
     ),
   }.toTable
 
-proc initGameState*(): GameStateRef =
+proc initGameState*(conf = none Config): GameStateRef =
   # Initialize game state and load config
   result = GameStateRef()
-  result.conf = Config.load(copyrightBanner = appDesc)
+  result.conf =
+    if conf.isSome:
+      conf.get
+    else:
+      Config.load(copyrightBanner = appDesc)
   result.startTime = now()
 
   # Initialize replay system and save/restore config when recording/playing a replay
@@ -125,8 +129,8 @@ proc initGameState*(): GameStateRef =
       initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
     result.confStorage = initStateStorage[Config](result.conf.replayName)
     let replayName = result.conf.replayName
+    # Restore config that was used when the replay was recorded
     result.conf = result.confStorage.loadState(Config)
-      # Restore config that was used when the replay was recorded
     result.conf.recordInputs = false
     result.conf.replayName = replayName
   elif result.conf.recordInputs:
@@ -159,5 +163,5 @@ proc update*(game: var GameStateRef) =
   game.scene.update(game.frame)
   game.frameCount += 1
 
-proc deinit(game: GameStateRef) =
+proc deinit*(game: GameStateRef) =
   game.replaySystem.deinit()

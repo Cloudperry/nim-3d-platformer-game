@@ -31,6 +31,7 @@ type
     vertexShaderText, fragmentShaderText: string
     shader: ShaderRef
     uniforms: ShaderDataBufferRef[GpuSceneUniforms]
+    pointLights: ShaderDataBufferRef[seq[PointLight]]
     vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
     elementBuffers: seq[ElementBufferRef]
     vertexArrays: seq[VertexArrayRef]
@@ -97,14 +98,14 @@ proc init(win: Window) =
     state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
   )
 
-  # Set up OpenGL buffers for passing vertex data to shaders
+  # Set up OpenGL buffers for passing data to shaders
   game.scene.setSceneUniforms()
   game.scene.makeGlBuffers()
-  game.scene.pointLights = initShaderDataBuffer[seq[PointLight]](
+  state.pointLights = initShaderDataBuffer[seq[PointLight]](
     state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW
   )
-  game.scene.loadTestSceneLights()
-  game.scene.pointLights.upload()
+  state.pointLights.loadTestSceneLights()
+  state.pointLights.upload()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
@@ -156,7 +157,7 @@ proc deinit() =
   state.uniforms.deinit()
   state.shader.deinit()
 
-  game.replaySystem.deinit()
+  game.deinit()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()

@@ -1,5 +1,5 @@
 import pkg/glm
-import ./[SceneTypes, Shapes, SceneLogic, CameraController]
+import ./[SceneTypes, Shapes, SceneLogic, CameraController, GlUtils]
 
 const shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
 
@@ -57,20 +57,20 @@ proc loadTestScene*(scene: var Scene): int =
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: {Ground}),
+    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: @[Ground]),
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: {Ground}),
+    BoxColliderData(halfExtents: vec3f(40, 0.5, 40), tags: @[Ground]),
   )
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    BoxColliderData(halfExtents: vec3f(40, 7, 1)),
+    BoxColliderData(halfExtents: vec3f(40, 7, 1), tags: @[LevelGeo]),
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
-  let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25))
+  let collider = BoxColliderData(halfExtents: vec3f(0.25, 2.0, 0.25), tags: @[LevelGeo])
   var playerE = initPlayerE(Transform(pos: vec3f(0, 1, 0)), PlayerData(), cam, collider)
 
   playerE.updateTransform()
@@ -78,22 +78,22 @@ proc loadTestScene*(scene: var Scene): int =
 
   return scene.addEntity playerE
 
-proc loadTestSceneLights*(scene: var Scene) =
-  scene.pointLights.add PointLight(
+proc loadTestSceneLights*(pointLights: var ShaderDataBufferRef[seq[PointLight]]) =
+  pointLights.add PointLight(
     position: vec3f(3, 0, 3),
     color: vec3f(0.8, 0.4, 0),
     constTerm: 1,
     linearFalloff: 0.5,
     expFalloff: 1 / 20,
   )
-  scene.pointLights.add PointLight(
+  pointLights.add PointLight(
     position: vec3f(-3, 0, 3),
     color: vec3f(0, 0.5, 0.7),
     constTerm: 1,
     linearFalloff: 0.5,
     expFalloff: 1 / 20,
   )
-  scene.pointLights.add PointLight(
+  pointLights.add PointLight(
     position: vec3f(0, 0, -5),
     color: vec3f(0.4, 0.4, 0.4),
     constTerm: 1,

@@ -61,7 +61,7 @@ type
     of Player:
       lastPlayedI: int = -1
 
-proc getReplayFilename[O: enum | object](
+proc getReplayFilename*[O: enum | object](
     storableObjectName: typedesc[O], replayName: string
 ): string =
   fmt"{replayName}.{$storableObjectName}.replay"
@@ -233,8 +233,13 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
 type StateStorage* = object
   stateFilename: string
 
-proc initStateStorage*[S: object](replayName: string): StateStorage =
-  StateStorage(stateFilename: S.getReplayFilename(replayName))
+proc getDataBlobFilename*[O: object](
+    storableObjectName: typedesc[O], dataBlobName: string
+): string =
+  fmt"{dataBlobName}.{$storableObjectName}.bin"
+
+proc initStateStorage*[S: object](dataBlobName: string): StateStorage =
+  StateStorage(stateFilename: S.getDataBlobFilename(dataBlobName))
 
 proc saveState*[S: object](ss: StateStorage, so: S) =
   let stateFileBytes = toFlatty(so)

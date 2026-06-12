@@ -49,6 +49,22 @@ type
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
 
+proc `==`*(c1, c2: CameraData): bool =
+  let sharedFieldsMatch =
+    c1.yaw == c2.yaw and c1.pitch == c2.pitch and c1.viewMat == c2.viewMat and
+    c1.projectionMat == c2.projectionMat and c1.aspectRatio == c2.aspectRatio and
+    c1.nearClip == c2.nearClip and c1.farClip == c2.farClip and c1.forward == c2.forward and
+    c1.right == c2.right and c1.up == c2.up
+
+  let caseFieldsMatch =
+    case c1.kind
+    of Orthographic:
+      c2.kind == Orthographic and c1.frustumLength == c2.frustumLength
+    of Perspective:
+      c2.kind == Perspective and c1.verticalFov == c2.verticalFov
+
+  return sharedFieldsMatch and caseFieldsMatch
+
 makeGlObjects(RaiseError, std140Alignment):
   type PointLight* = object
     position*: Vec3f
@@ -67,7 +83,6 @@ type
     colliderIds*: seq[int]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
-    pointLights*: ShaderDataBufferRef[seq[PointLight]]
 
   EntityId* = object
     id*: int
@@ -100,7 +115,7 @@ type
 
   BoxColliderData* = object
     halfExtents*: Vec3f
-    tags*: set[ColliderTags] = {LevelGeo}
+    tags*: seq[ColliderTags] = @[LevelGeo]
 
   CollisionResult* = object
     pushVec*: Vec3f
