@@ -238,21 +238,12 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
     state.monitor = newMonitor
 
 proc compileShaders(slangBinPath = "") =
-  # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
-  # in Slangc better by adding init proc.
-  var opts = SlangcOptions(
-    target: Glsl,
-    entryPoint: "vertexMain",
-    stage: Vertex,
-    inFile: shadersDir / "RasterizedRenderer.slang",
-  )
-  if slangBinPath.len > 0:
-    opts.slangPath = slangBinPath
-  state.vertexShaderText = compileShaderOrRaise(opts)
+  let inFile = shadersDir / "RasterizedRenderer.slang"
+  let vertOpts = initSlangcOptions(inFile, Vertex)
+  state.vertexShaderText = compileShaderOrRaise(vertOpts)
 
-  opts.stage = Fragment
-  opts.entryPoint = "fragmentMain"
-  state.fragmentShaderText = compileShaderOrRaise(opts)
+  let fragOpts = initSlangcOptions(inFile, Fragment)
+  state.fragmentShaderText = compileShaderOrRaise(fragOpts)
 
 proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init

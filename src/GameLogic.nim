@@ -24,8 +24,8 @@ type
     # Renderer settings
     slangBinPath* {.
       name: "slangBinPath",
-      defaultValue: "/opt/shader-slang-bin/bin",
-      desc: "Slang shader compiler path"
+      defaultValue: "",
+      desc: "Slang shader compiler binary path (leave empty to discover from PATH)"
     .}: string
     swapInterval * {.
       name: "swapInterval",
