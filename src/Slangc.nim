@@ -27,9 +27,13 @@ proc short(s: ShaderStage): string =
   of Vertex: "Vert"
   of Compute: "Comp"
 
-proc updateOutFile(o: var SlangcOptions) =
+
+proc getOutputFilename*(o: SlangcOptions): string =
   let inputName = o.inFile.split(".")
-  o.outFile = fmt"{inputName[0]}{o.stage.short()}.{o.target.fileExt()}"
+  return fmt"{inputName[0]}{o.stage.short()}.{o.target.fileExt()}"
+
+proc updateOutputFilename(o: var SlangcOptions) =
+  o.outFile = o.getOutputFilename()
 
 proc getEntryPoint*(stage: ShaderStage): string = fmt"{stage}Main"
 
@@ -48,19 +52,19 @@ proc initSlangcOptions*(
     raise newException(Exception, "Failed to find slangc in PATH")
 
   result = SlangcOptions(inFile: inFile, entryPoint: entryPoint, slangPath: slangBin, target: target, stage: stage)
-  result.updateOutFile()
+  result.updateOutputFilename()
 
 proc `inFile=`*(o: var SlangcOptions, path: string) =
   o.inFile = path
-  o.updateOutFile()
+  o.updateOutputFilename()
 
 proc `target=`*(o: var SlangcOptions, target: TargetFormat) =
   o.target = target
-  o.updateOutFile()
+  o.updateOutputFilename()
 
 proc `stage=`*(o: var SlangcOptions, s: ShaderStage) =
   o.stage = s
-  o.updateOutFile()
+  o.updateOutputFilename()
 
 proc makeSlangCmd(o: SlangcOptions): string =
   let entryPointOptArg = if o.entryPoint.len > 0:

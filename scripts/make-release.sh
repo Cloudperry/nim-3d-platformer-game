@@ -30,7 +30,7 @@ mkdir -p "$release_dir"
 mv "$game_bin" "$tester_bin" "$release_dir/"
 cp -a testData "$release_dir/"
 
-nim r src/Game.nim --compileShadersAndQuit
+nim r -d:debug src/Game.nim --compileShadersAndQuit
 
 mkdir -p "$release_dir/shaders"
 find shaders -maxdepth 1 -type f -name "*.glsl" -print0 |

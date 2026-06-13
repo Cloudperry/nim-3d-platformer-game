@@ -237,13 +237,23 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
     # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(slangBinPath = "") =
+const isDebugBuild = defined(debug)
+
+proc loadShader(o: SlangcOptions): string =
+  let filename = o.getOutputFilename()
+  return readFile(filename)
+
+proc loadShaders(slangBinPath = "") =
   let inFile = shadersDir / "RasterizedRenderer.slang"
   let vertOpts = initSlangcOptions(inFile, Vertex)
-  state.vertexShaderText = compileShaderOrRaise(vertOpts)
-
   let fragOpts = initSlangcOptions(inFile, Fragment)
-  state.fragmentShaderText = compileShaderOrRaise(fragOpts)
+
+  when isDebugBuild:
+    state.vertexShaderText = compileShaderOrRaise(vertOpts)
+    state.fragmentShaderText = compileShaderOrRaise(fragOpts)
+  else:
+    state.vertexShaderText = loadShader(vertOpts)
+    state.fragmentShaderText = loadShader(fragOpts)
 
 proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init
@@ -255,7 +265,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   cfg.version = glv46
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
-  cfg.debugContext = not (defined(release) or defined(danger))
+  cfg.debugContext = isDebugBuild
   cfg.bits.depth = 24.some
 
   # GLFW init that has to be done after window creation
@@ -289,7 +299,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
 
 proc main() =
   game = initGameState()
-  compileShaders(game.conf.slangBinPath)
+  loadShaders(game.conf.slangBinPath)
   if game.conf.compileShadersAndQuit:
     quit()
 
