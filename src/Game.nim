@@ -293,7 +293,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
     globalLogger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
   # TODO: Allow running faster than VSync when playing higher than monitor refresh rate replays
-  glfw.swapInterval(1)
+  glfw.swapInterval(game.conf.swapInterval)
   return (win, cfg)
 
 proc main() =

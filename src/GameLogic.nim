@@ -4,11 +4,7 @@ import ./[SceneLogic, Input, TestScenes]
 
 type
   Config* = object
-    slangBinPath* {.
-      name: "slangBinPath",
-      defaultValue: "/opt/shader-slang-bin/bin",
-      desc: "Slang shader compiler path"
-    .}: string
+    # Game settings
     movementMode* {.
       name: "movementMode",
       defaultValue: Walking,
@@ -25,6 +21,17 @@ type
     replayName* {.
       name: "replayName", defaultValue: "", desc: "Replay name to play back"
     .}: string
+    # Renderer settings
+    slangBinPath* {.
+      name: "slangBinPath",
+      defaultValue: "/opt/shader-slang-bin/bin",
+      desc: "Slang shader compiler path"
+    .}: string
+    swapInterval * {.
+      name: "swapInterval",
+      defaultValue: 1,
+      desc: "Controls VSync (0 = VSync off, 1 = VSync on, 2 = half-rate VSync on)"
+    .}: int
 
   ActionNames* = enum
     MoveFwd
