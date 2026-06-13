@@ -12,7 +12,6 @@ type
 
   SlangcOptions* = object
     inFile*, entryPoint*, outFile*: string
-    slangPath*: string
     target*: TargetFormat = Glsl
     stage*: ShaderStage
 
@@ -26,7 +25,6 @@ proc short(s: ShaderStage): string =
   of Fragment: "Frag"
   of Vertex: "Vert"
   of Compute: "Comp"
-
 
 proc getOutputFilename*(o: SlangcOptions): string =
   let inputName = o.inFile.split(".")
@@ -42,16 +40,8 @@ proc initSlangcOptions*(
     stage: ShaderStage,
     entryPoint = getEntryPoint(stage),
     target = SlangcOptions.default.target,
-    slangPath = "",
 ): SlangcOptions =
-  let slangBin = if slangPath.len > 0:
-    slangPath / "slangc"
-  else:
-    findExe("slangc")
-  if slangBin.len == 0:
-    raise newException(Exception, "Failed to find slangc in PATH")
-
-  result = SlangcOptions(inFile: inFile, entryPoint: entryPoint, slangPath: slangBin, target: target, stage: stage)
+  result = SlangcOptions(inFile: inFile, entryPoint: entryPoint, target: target, stage: stage)
   result.updateOutputFilename()
 
 proc `inFile=`*(o: var SlangcOptions, path: string) =
@@ -66,15 +56,22 @@ proc `stage=`*(o: var SlangcOptions, s: ShaderStage) =
   o.stage = s
   o.updateOutputFilename()
 
-proc makeSlangCmd(o: SlangcOptions): string =
+proc makeSlangCmd(o: SlangcOptions, slangPath = ""): string =
+  let slangBin = if slangPath.len > 0:
+    slangPath / "slangc"
+  else:
+    findExe("slangc")
+  if slangBin.len == 0:
+    raise newException(Exception, "Failed to find slangc in PATH")
+
   let entryPointOptArg = if o.entryPoint.len > 0:
     fmt" -entry {o.entryPoint}"
   else:
     ""
-  return fmt"{o.slangPath} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
+  return fmt"{slangBin} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
 
-proc compileShaderOrRaise*(o: SlangcOptions): string =
-  let cmdRes = o.makeSlangCmd().execCmdEx()
+proc compileShaderOrRaise*(o: SlangcOptions, slangPath = ""): string =
+  let cmdRes = o.makeSlangCmd(slangPath).execCmdEx()
   if cmdRes.exitCode != 0:
     raise newException(
       Exception, &"Failed to compile shader {o.inFile}:\n\n{cmdRes.output}"
