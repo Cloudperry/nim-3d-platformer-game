@@ -37,7 +37,7 @@ type
     vertexArrays: seq[VertexArrayRef]
 
 const
-  shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
+  shadersDir = "shaders"
   buttonActions: InputsToActions[ActionNames, Key] = {
     keyComma: MoveFwd,
     keyW: MoveFwd,

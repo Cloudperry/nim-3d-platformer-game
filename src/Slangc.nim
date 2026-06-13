@@ -82,13 +82,13 @@ proc compileShaderOrRaise*(o: SlangcOptions, slangPath = ""): string =
 if isMainModule:
   let vertOpts = initSlangcOptions(
     stage = Vertex,
-    inFile = "/home/roni/Programming/Games/FpsTestNim/shaders/HelloTriangle.slang",
+    inFile = "shaders/HelloTriangle.slang",
     target = Glsl,
   )
   echo compileShaderOrRaise(vertOpts)
   let fragOpts = initSlangcOptions(
     stage = Fragment,
-    inFile = "/home/roni/Programming/Games/FpsTestNim/shaders/HelloTriangle.slang",
+    inFile = "shaders/HelloTriangle.slang",
     target = Glsl,
   )
   echo compileShaderOrRaise(fragOpts)
