@@ -12,7 +12,7 @@ archive_path="$release_dir.tar.xz"
 game_bin="bin/platformer-game"
 tester_bin="bin/platformer-game-tester"
 
-nimble build -d:release
+nimble build -d:release -d:glfwStaticLib
 
 if [[ ! -x "$game_bin" ]]; then
   echo "Expected game binary not found: $game_bin" >&2
