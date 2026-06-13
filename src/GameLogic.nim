@@ -55,9 +55,6 @@ type
     startTime*: DateTime
     playingReplay* = true
     frame*: FrameState
-    # TODO: Move these inside the player entity as these settings only affect how the player controller behaves
-    mouseSensitivity*: float
-    mode*: MovementMode
 
 const
   appDesc* = "Nim OpenGL FPS game"
