@@ -290,6 +290,8 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
 proc main() =
   game = initGameState()
   compileShaders(game.conf.slangBinPath)
+  if game.conf.compileShadersAndQuit:
+    quit()
 
   var (win, cfg) = initGlfwAndGlad()
   win.init()

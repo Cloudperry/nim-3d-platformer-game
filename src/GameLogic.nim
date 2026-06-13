@@ -32,6 +32,11 @@ type
       defaultValue: 1,
       desc: "Controls VSync (0 = VSync off, 1 = VSync on, 2 = half-rate VSync on)"
     .}: int
+    compileShadersAndQuit* {.
+      name: "compileShadersAndQuit",
+      defaultValue: false,
+      desc: "Makes the renderer only compile shaders and then quit"
+    .}: bool
 
   ActionNames* = enum
     MoveFwd

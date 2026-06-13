@@ -5,6 +5,7 @@ description = "3D platformer game project"
 srcDir = "src"
 binDir = "bin"
 namedBin["Game"] = "platformer-game"
+namedBin["Tester"] = "platformer-game-tester"
 backend = "c"
 license = "MIT"
 

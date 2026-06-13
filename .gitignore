@@ -3,7 +3,7 @@
 !*.*
 *.exe
 !*/
-# Don't ignore binaries (scripts) under .githooks
+# Don't ignore binaries under .githooks
 !.githooks/*
 
 # Ignore Slang generated shader files
@@ -21,3 +21,6 @@
 
 # Ignore Nimble generated files
 nimble.paths
+
+# Ignore folder used for building release archives for the game
+releases/
