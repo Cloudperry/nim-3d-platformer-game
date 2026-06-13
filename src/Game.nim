@@ -297,6 +297,8 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   glfw.swapInterval(game.conf.swapInterval)
   return (win, cfg)
 
+const maxDeltaTime = 1.0 / 30.0 # Delta time for 30 FPS
+
 proc main() =
   game = initGameState()
   loadShaders(game.conf.slangBinPath)
@@ -312,6 +314,8 @@ proc main() =
     let frameDuration = currFrameStart - prevFrameStart
     game.frame.deltaTime =
       frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
+    # Clamp deltaTime to being less than maxDeltaTime to prevent the simulation from taking too large steps
+    game.frame.deltaTime = min(maxDeltaTime, game.frame.deltaTime)
     game.frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
 
