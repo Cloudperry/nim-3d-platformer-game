@@ -237,7 +237,7 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
     # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-const isDebugBuild = defined(debug)
+const isDebugBuild = not (defined(release) or defined(danger))
 
 proc loadShader(o: SlangcOptions): string =
   let filename = o.getOutputFilename()
@@ -249,8 +249,8 @@ proc loadShaders(slangBinPath = "") =
   let fragOpts = initSlangcOptions(inFile, Fragment)
 
   when isDebugBuild:
-    state.vertexShaderText = compileShaderOrRaise(vertOpts)
-    state.fragmentShaderText = compileShaderOrRaise(fragOpts)
+    state.vertexShaderText = compileShaderOrRaise(vertOpts, slangBinPath)
+    state.fragmentShaderText = compileShaderOrRaise(fragOpts, slangBinPath)
   else:
     state.vertexShaderText = loadShader(vertOpts)
     state.fragmentShaderText = loadShader(fragOpts)
