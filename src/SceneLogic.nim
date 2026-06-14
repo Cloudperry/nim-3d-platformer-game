@@ -14,6 +14,8 @@ type
     uv*: Vec2f
 
 proc getTransformMat*(t: Transform): Mat4f =
+  ## Builds the model-to-world matrix from a Transform, applying scale, then XYZ rotation
+  ## (pitch -> yaw -> roll), then translation.
   var scaleMat, translateMat, rotateMat = mat4f(1.0)
   # Scaling
   scaleMat[0, 0] = t.scale.x
@@ -36,6 +38,8 @@ proc getTransformMat*(t: Transform): Mat4f =
 proc initPlayerE*(
     t: Transform, p: PlayerData, c: CameraData, bc: BoxColliderData
 ): Entity =
+  ## Creates a player controller entity bundling the player, camera and box collider
+  ## components, parented to the scene root.
   Entity(
     kind: PlayerController,
     t: t,
@@ -48,9 +52,11 @@ proc initPlayerE*(
 proc initBoxColliderData*(
     halfExtents: Vec3f, tags = @[LevelGeo]
 ): BoxColliderData =
+  ## Creates box collider data with the given half-extents, defaulting to level geometry tags.
   BoxColliderData(halfExtents: halfExtents, tags: tags)
 
 proc initBoxColliderE*(t: Transform, bc: BoxColliderData): Entity =
+  ## Creates a standalone box collider entity parented to the scene root.
   Entity(kind: BoxCollider, t: t, boxColliderData: some bc, parentIds: @[rootId])
 
 proc posColorNorm*(pos, color, normal: Vec3f): ColoredVertex =
@@ -62,6 +68,8 @@ proc posUvNorm*(pos: Vec3f, uv: Vec2f, normal: Vec3f): TexturedVertex =
 proc initModel*[T](
     vertices: seq[T], indices: seq[GLuint] = @[], transform = Transform()
 ): Model[T] =
+  ## Creates a renderable model. An empty indices list means the vertices are a raw
+  ## triangle list instead of an indexed mesh.
   Model[T](vertices: vertices, indices: indices, transform: transform)
 
 proc initScene*[T](
@@ -69,6 +77,7 @@ proc initScene*[T](
     dirLight = DirectionalLight.none,
     ambientLight = Vec3f.none,
 ): Scene[T] =
+  ## Creates a scene seeded with the root entity and optional directional/ambient lighting.
   result = Scene[T](models: models)
   result.entities.add rootNode
   if dirLight.isSome:
@@ -77,6 +86,8 @@ proc initScene*[T](
     result.ambientLightColor = ambientLight.get
 
 proc addEntity*(s: var Scene, e: Entity): int =
+  ## Adds an entity to the scene, registers it as a child of the root and tracks it in
+  ## colliderIds if it is a box collider. Returns the index of the added entity.
   if s.entities.high <= s.firstFreeEntitySlot:
     s.entities.add e
     s.firstFreeEntitySlot += 1
@@ -87,6 +98,8 @@ proc addEntity*(s: var Scene, e: Entity): int =
   return s.entities.high
 
 proc updatePlayer(e: var Entity, s: Scene, frame: FrameState) =
+  ## Updates a player entity for one frame: applies camera rotation, then movement based
+  ## on the current mode (flying camera or walking FPS controls).
   let player = e.player
   # Camera rotation
   e.doCameraRotation(player.turnVec.x, player.turnVec.y, e.player.cameraOpts)
@@ -106,6 +119,7 @@ const components: Table[EntityKind, set[EntityKind]] = {
   Base: {Base},
 }.toTable
 proc update*(s: var Scene, frame: FrameState) =
+  ## Advances the whole scene by one frame, updating each entity's components.
   for e in s.entities.mitems:
     let entityComponents = components[e.kind]
     for component in entityComponents:

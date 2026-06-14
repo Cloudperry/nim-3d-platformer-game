@@ -44,6 +44,10 @@ proc getPenetrationVector(e1, e2: Entity): Vec3f =
   return vec3f(overlapX, overlapY, overlapZ)
 
 proc resolveCollisions*(e: var Entity, s: Scene): CollisionResult =
+  ## Pushes the entity out of any level colliders it overlaps and zeroes the velocity
+  ## component along each axis it was pushed on. Resolves on the axis of smallest
+  ## penetration first, which gives sliding along walls/floors. Returns the total push
+  ## vector and the ids of the colliders that were hit.
   # NOTE: Double check that the logic for leaving player barely inside the collider 
   # makes sense. It is probably wrong in some edge case.
   for i in s.colliderIds:

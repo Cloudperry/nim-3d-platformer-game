@@ -5,6 +5,8 @@ import ./[SceneLogic, GlUtils]
 type SimpleModel* = tuple[vertices: seq[ColoredVertex], indices: seq[GLuint]]
 
 proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
+  ## Generates the vertices and indices of an axis-aligned box centered on the origin,
+  ## with correct per-face outward normals.
   let topRightFront = halfExtents * vec3f(1.0, 1.0, 1.0)
   let topLeftFront = halfExtents * vec3f(-1.0, 1.0, 1.0)
   let botLeftFront = halfExtents * vec3f(-1.0, -1.0, 1.0)
@@ -45,6 +47,7 @@ proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
   return (vertices: vertices, indices: indices)
 
 proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
+  ## Generates a square-based pyramid centered on the origin with per-face normals.
   let apex = vec3f(0, halfSizeLen, 0)
   let botLeftFront = vec3f(-halfSizeLen, -halfSizeLen, halfSizeLen)
   let botRightFront = vec3f(halfSizeLen, -halfSizeLen, halfSizeLen)
@@ -86,6 +89,7 @@ proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
   return (vertices: vertices, indices: indices)
 
 proc makeSphere*(radius: float, slices, stacks: int, color: Vec3f): SimpleModel =
+  ## Generates a UV sphere from the given slice/stack counts, with smooth outward normals.
   var vertices: seq[ColoredVertex]
   var indices: seq[int]
 
@@ -132,6 +136,8 @@ proc addModel(
     hasCollider: bool,
     tags: seq[ColliderTags],
 ) =
+  ## Adds a model to the scene and, when hasCollider is set, a matching box collider sized
+  ## from the model's bounding box and the transform's scale.
   scene.models.add initModel(model.vertices, model.indices, transform)
   if hasCollider:
     discard scene.addEntity initBoxColliderE(
@@ -148,6 +154,7 @@ proc addBox*(
     hasCollider = true,
     tags = @[LevelGeo],
 ) =
+  ## Adds a box model (and by default a collider) to the scene.
   scene.addModel(makeBox(halfExtents, color), transform, hasCollider, tags)
 
 proc addPyramid*(
@@ -158,6 +165,7 @@ proc addPyramid*(
     hasCollider = true,
     tags = @[LevelGeo],
 ) =
+  ## Adds a pyramid model (and by default a collider) to the scene.
   scene.addModel(makePyramid(halfSizeLen, color), transform, hasCollider, tags)
 
 proc addSphere*(
@@ -169,6 +177,7 @@ proc addSphere*(
     hasCollider = true,
     tags = @[LevelGeo],
 ) =
+  ## Adds a sphere model (and by default a collider) to the scene.
   scene.addModel(
     makeSphere(radius, slices, stacks, color), transform, hasCollider, tags
   )

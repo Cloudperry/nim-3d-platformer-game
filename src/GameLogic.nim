@@ -3,6 +3,8 @@ import pkg/[glm, confutils]
 import ./[SceneLogic, Input, TestScenes]
 
 type
+  ## All configurable game/renderer settings. Parsed from the command line via confutils
+  ## and serialized alongside replays so playback uses the same settings as recording.
   Config* = object
     # Game settings
     movementMode* {.
@@ -49,6 +51,8 @@ type
     SetDeltaTime
     SetMonoTime
 
+  ## Top-level mutable game state: config, the active scene, the input/replay system and
+  ## per-frame bookkeeping. Passed around as a ref so updates are shared everywhere.
   GameStateRef* = ref object # Renderer state and wrapper objects
     conf*: Config
     confStorage*: StateStorage
@@ -79,6 +83,9 @@ template scene*(game: GameStateRef): untyped =
   game.scene
 
 proc makeActions*(game: GameStateRef): Actions[ActionNames] =
+  ## Builds the action table mapping each ActionName to a closure that mutates game state
+  ## (movement direction, turn vector, delta/mono time). The same table is used for live
+  ## input, recording and replay playback.
   return {
     MoveFwd: initBoolAction(
       proc(pressed: bool) =
@@ -121,6 +128,9 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
   }.toTable
 
 proc initGameState*(conf = none Config): GameStateRef =
+  ## Creates and initializes the game state: loads config (from the argument or the command
+  ## line), sets up the replay system for recording/playback/live input, loads the test
+  ## scene and applies the player settings from config.
   # Initialize game state and load config
   result = GameStateRef()
   result.conf =
@@ -155,6 +165,9 @@ proc initGameState*(conf = none Config): GameStateRef =
   result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
 
 proc preUpdate*(game: GameStateRef) =
+  ## Resets per-frame input, then either records the current frame's timing (when recording)
+  ## or plays back the next replay actions (when replaying). Run this before reading input
+  ## and before update().
   game.player.turnVec = vec2f(0)
   game.player.moveDirection = vec3f(0)
   if game.conf.replayName.len <= 0:
@@ -169,8 +182,10 @@ proc preUpdate*(game: GameStateRef) =
       game.playingReplay = game.replaySystem.play(game.frameCount)
 
 proc update*(game: var GameStateRef) =
+  ## Advances the simulation by one frame and increments the frame counter.
   game.scene.update(game.frame)
   game.frameCount += 1
 
 proc deinit*(game: GameStateRef) =
+  ## Releases game resources, flushing and closing the replay system.
   game.replaySystem.deinit()

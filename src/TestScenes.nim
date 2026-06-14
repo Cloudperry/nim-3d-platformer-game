@@ -4,6 +4,8 @@ import ./[SceneTypes, SceneBuilder, SceneLogic, CameraController, GlUtils]
 const shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
 
 proc loadTestScene*(scene: var Scene): int =
+  ## Builds the hardcoded test level (ground, walls, a few shapes) and a player entity,
+  ## storing the result into `scene`. Returns the player entity's index.
   scene = initScene[ColoredVertex](
     dirLight =
       DirectionalLight(
@@ -54,6 +56,7 @@ proc loadTestScene*(scene: var Scene): int =
   return scene.addEntity playerE
 
 proc loadTestSceneLights*(pointLights: var ShaderDataBufferRef[seq[PointLight]]) =
+  ## Adds the test scene's hardcoded point lights into the given GPU light buffer.
   pointLights.add PointLight(
     position: vec3f(3, 0, 3),
     color: vec3f(0.8, 0.4, 0),

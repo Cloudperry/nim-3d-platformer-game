@@ -15,6 +15,8 @@ const
   stopSpeed = 1.905'f32
 
 proc applyGroundFriction(p: var PlayerData, dt: float) =
+  ## Slows the player down while on the ground, Quake-style. Below stopSpeed a constant
+  ## friction is applied so the player comes to a full stop instead of creeping forever.
   let speed = p.velocity.length()
 
   if speed < 0.05'f32:
@@ -28,6 +30,9 @@ proc applyGroundFriction(p: var PlayerData, dt: float) =
 proc accelerate(
     p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32, dt: float
 ) =
+  ## Quake-style acceleration: only adds speed up to targetSpeed along targetDir. Because
+  ## it caps the speed *projected* onto the target direction rather than the total speed,
+  ## strafing while turning lets the player gain extra speed (bunny hopping/air strafing).
   let speedTowardsTarget = p.velocity.dot(targetDir)
   let addSpeed = targetSpeed - speedTowardsTarget
   if addSpeed > 0:
@@ -35,6 +40,10 @@ proc accelerate(
     p.velocity += accelSpeed * targetDir
 
 proc doJumpingAndGravity(e: var Entity, dt: float, monoTime: MonoTIme) =
+  ## Handles jumping, wall jumping and gravity. A normal jump is allowed within coyoteTime
+  ## of touching the ground. A wall jump is allowed within coyoteTime of touching a wall,
+  ## as long as that wall wasn't already used for the current wall jump, and launches the
+  ## player 45 degrees up and away from the wall.
   if e.player.moveDirection.y > 0:
     if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
       e.player.jumping = true
@@ -55,6 +64,9 @@ proc capVelocityAndMove(e: var Entity, dt: float) =
   e.t.pos += e.player.velocity * dt
 
 proc handleCollisions(e: var Entity, s: Scene, monoTime: MonoTime) =
+  ## Resolves collisions and records ground/wall contact based on the push direction. A
+  ## mostly-upward push counts as touching the ground (and resets jump state); a mostly-
+  ## sideways push counts as touching a wall, which enables wall jumping.
   let collision = e.resolveCollisions(s)
   if collision.colliderIds.len > 0:
     let cosPushVec = collision.pushVec.normalize().y
@@ -69,6 +81,9 @@ proc handleCollisions(e: var Entity, s: Scene, monoTime: MonoTime) =
       e.player.lastWallTouchDir = collision.pushVec.normalize()
 
 proc doWalkingPlayerMovement*(e: var Entity, s: Scene, dt: float, monoTime: MonoTime) =
+  ## Runs one tick of the FPS walking movement: friction (only when grounded), Quake-style
+  ## ground/air acceleration, jumping and gravity, velocity capping, collision resolution
+  ## and finally refreshing the camera transform.
   let moveDirectionPlane = vec3f(e.player.moveDirection.x, 0, e.player.moveDirection.z)
   let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
   let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)
