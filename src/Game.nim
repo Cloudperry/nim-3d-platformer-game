@@ -4,7 +4,7 @@ import pkg/[glm, glfw, confutils]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
-    GlUtils, Slangc, Logger, SceneLogic, CameraController, Math, Input, TestScenes,
+    GlUtils, Slangc, Logger, SceneLogic, CameraController, Input, TestScenes,
     GameLogic,
   ]
 import ./glad/gl
