@@ -63,6 +63,6 @@ if ! find "$release_dir/shaders" -maxdepth 1 -type f -name "*.glsl" | grep -q .;
   exit 1
 fi
 
-tar -cJf "$archive_path" -C "$release_dir" .
+tar -cJf "$archive_path" -C "$release_root" "$release_name"
 
 echo "Created release archive: $archive_path"
