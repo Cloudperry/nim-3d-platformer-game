@@ -1,81 +1,47 @@
 import pkg/glm
-import ./[SceneTypes, Shapes, SceneLogic, CameraController, GlUtils]
+import ./[SceneTypes, SceneBuilder, SceneLogic, CameraController, GlUtils]
 
 const shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
 
 proc loadTestScene*(scene: var Scene): int =
-  let
-    platform = makeBox(vec3f(40.0, 0.5, 40.0), shapeColor)
-    wall = makeBox(vec3f(40.0, 7, 1.0), shapeColor)
-    cube = makeBox(vec3f(0.5), shapeColor)
-    pyramid = makePyramid(0.5'f32, shapeColor)
-    sphere = makeSphere(0.5, 100, 100, shapeColor)
-    groundModel = initModel(
-      platform.vertices,
-      platform.indices,
-      transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1.25, 1, 1)),
-    )
-    wallModel = initModel(
-      wall.vertices,
-      wall.indices,
-      transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1.25, 1, 1)),
-    )
-    groundModelLowerLevel = initModel(
-      platform.vertices,
-      platform.indices,
-      transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1.25, 1, 1)),
-    )
-    roofModel = initModel(
-      platform.vertices,
-      platform.indices,
-      transform = Transform(pos: vec3f(0, 6, 0), scale: vec3f(1, 1, 1)),
-    )
-    cubeModel = initModel(
-      cube.vertices,
-      cube.indices,
-      transform = Transform(pos: vec3f(0, 0, -2), scale: vec3f(1, 1, 1)),
-    )
-    pyramidModel = initModel(
-      pyramid.vertices,
-      pyramid.indices,
-      transform = Transform(pos: vec3f(-2, 0, -2), scale: vec3f(1, 1, 1)),
-    )
-    sphereModel = initModel(
-      sphere.vertices,
-      sphere.indices,
-      transform = Transform(pos: vec3f(2, 0, -2), scale: vec3f(1, 1, 1)),
-    )
-  scene = initScene(
-    @[
-      groundModel, wallModel, groundModelLowerLevel, roofModel, cubeModel, pyramidModel,
-      sphereModel,
-    ],
-    DirectionalLight(
-      direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)
-    ).some,
-    vec3f(0.1).some,
+  scene = initScene[ColoredVertex](
+    dirLight =
+      DirectionalLight(
+        direction: vec3f(-5, -5, -3).normalize(), color: vec3f(0.7, 0.35, 0.25)
+      ).some,
+    ambientLight = vec3f(0.1).some,
   )
 
   # Ground
-  discard scene.addEntity initBoxColliderE(
-    Transform(pos: vec3f(0.0, -2.0, 0.0)),
-    initBoxColliderData(halfExtents = vec3f(50, 0.5, 40), tags = @[Ground]),
-  )
-  # Roof
-  discard scene.addEntity initBoxColliderE(
-    Transform(pos: vec3f(0.0, 6.0, 0.0)),
-    initBoxColliderData(halfExtents = vec3f(40, 0.5, 40), tags = @[Ground]),
-  )
-  # Lower ground
-  discard scene.addEntity initBoxColliderE(
-    Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    initBoxColliderData(halfExtents = vec3f(50, 0.5, 40), tags = @[Ground]),
+  scene.addBox(
+    vec3f(40.0, 0.5, 40.0),
+    shapeColor,
+    Transform(pos: vec3f(0, -2, 0), scale: vec3f(1.25, 1, 1)),
+    tags = @[Ground],
   )
   # Wall
-  discard scene.addEntity initBoxColliderE(
-    Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    initBoxColliderData(halfExtents = vec3f(50, 7, 1)),
+  scene.addBox(
+    vec3f(40.0, 7, 1.0),
+    shapeColor,
+    Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1.25, 1, 1)),
   )
+  # Lower ground
+  scene.addBox(
+    vec3f(40.0, 0.5, 40.0),
+    shapeColor,
+    Transform(pos: vec3f(0, -5, 40), scale: vec3f(1.25, 1, 1)),
+    tags = @[Ground],
+  )
+  # Roof
+  scene.addBox(
+    vec3f(40.0, 0.5, 40.0), shapeColor, Transform(pos: vec3f(0, 6, 0)), tags = @[Ground]
+  )
+  # Cube
+  scene.addBox(vec3f(0.5), shapeColor, Transform(pos: vec3f(0, 0, -2)))
+  # Pyramid
+  scene.addPyramid(0.5'f32, shapeColor, Transform(pos: vec3f(-2, 0, -2)))
+  # Sphere
+  scene.addSphere(0.5, 100, 100, shapeColor, Transform(pos: vec3f(2, 0, -2)))
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100)

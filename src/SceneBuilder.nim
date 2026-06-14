@@ -116,3 +116,59 @@ proc makeSphere*(radius: float, slices, stacks: int, color: Vec3f): SimpleModel 
       indices.add(second + 1)
 
   return (vertices, indices)
+
+proc getBoundingBoxHalfExtents(model: SimpleModel): Vec3f =
+  ## Finds the bounding box half-extents of the model by finding the max coordinate
+  ## for each axis. This simple function only works properly for centered models.
+  for vertex in model.vertices:
+    result.x = max(result.x, abs(vertex.pos.x))
+    result.y = max(result.y, abs(vertex.pos.y))
+    result.z = max(result.z, abs(vertex.pos.z))
+
+proc addModel(
+    scene: var Scene[ColoredVertex],
+    model: SimpleModel,
+    transform: Transform,
+    hasCollider: bool,
+    tags: seq[ColliderTags],
+) =
+  scene.models.add initModel(model.vertices, model.indices, transform)
+  if hasCollider:
+    discard scene.addEntity initBoxColliderE(
+      Transform(pos: transform.pos),
+      initBoxColliderData(
+        halfExtents = model.getBoundingBoxHalfExtents() * transform.scale, tags = tags
+      ),
+    )
+
+proc addBox*(
+    scene: var Scene[ColoredVertex],
+    halfExtents, color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  scene.addModel(makeBox(halfExtents, color), transform, hasCollider, tags)
+
+proc addPyramid*(
+    scene: var Scene[ColoredVertex],
+    halfSizeLen: float32,
+    color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  scene.addModel(makePyramid(halfSizeLen, color), transform, hasCollider, tags)
+
+proc addSphere*(
+    scene: var Scene[ColoredVertex],
+    radius: float,
+    slices, stacks: int,
+    color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  scene.addModel(
+    makeSphere(radius, slices, stacks, color), transform, hasCollider, tags
+  )
