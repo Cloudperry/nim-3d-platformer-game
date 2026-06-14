@@ -5,30 +5,30 @@ const shapeColor = vec3f(1.0'f32, 1.0'f32, 1.0'f32)
 
 proc loadTestScene*(scene: var Scene): int =
   let
-    ground = makeBox(vec3f(40.0, 0.5, 40.0), shapeColor)
+    platform = makeBox(vec3f(40.0, 0.5, 40.0), shapeColor)
     wall = makeBox(vec3f(40.0, 7, 1.0), shapeColor)
     cube = makeBox(vec3f(0.5), shapeColor)
     pyramid = makePyramid(0.5'f32, shapeColor)
     sphere = makeSphere(0.5, 100, 100, shapeColor)
     groundModel = initModel(
-      ground.vertices,
-      ground.indices,
-      transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1, 1, 1)),
+      platform.vertices,
+      platform.indices,
+      transform = Transform(pos: vec3f(0, -2, 0), scale: vec3f(1.25, 1, 1)),
     )
     wallModel = initModel(
       wall.vertices,
       wall.indices,
-      transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1, 1, 1)),
+      transform = Transform(pos: vec3f(0, 1.5, -39), scale: vec3f(1.25, 1, 1)),
     )
-    groundModelLowerLv = initModel(
-      ground.vertices,
-      ground.indices,
-      transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1, 1, 1)),
+    groundModelLowerLevel = initModel(
+      platform.vertices,
+      platform.indices,
+      transform = Transform(pos: vec3f(0, -5, 40), scale: vec3f(1.25, 1, 1)),
     )
     roofModel = initModel(
-      ground.vertices,
-      ground.indices,
-      transform = Transform(pos: vec3f(0, 5, 0), scale: vec3f(1, 1, 1)),
+      platform.vertices,
+      platform.indices,
+      transform = Transform(pos: vec3f(0, 6, 0), scale: vec3f(1, 1, 1)),
     )
     cubeModel = initModel(
       cube.vertices,
@@ -47,7 +47,7 @@ proc loadTestScene*(scene: var Scene): int =
     )
   scene = initScene(
     @[
-      groundModel, wallModel, groundModelLowerLv, roofModel, cubeModel, pyramidModel,
+      groundModel, wallModel, groundModelLowerLevel, roofModel, cubeModel, pyramidModel,
       sphereModel,
     ],
     DirectionalLight(
@@ -55,17 +55,26 @@ proc loadTestScene*(scene: var Scene): int =
     ).some,
     vec3f(0.1).some,
   )
+
+  # Ground
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -2.0, 0.0)),
+    initBoxColliderData(halfExtents = vec3f(50, 0.5, 40), tags = @[Ground]),
+  )
+  # Roof
+  discard scene.addEntity initBoxColliderE(
+    Transform(pos: vec3f(0.0, 6.0, 0.0)),
     initBoxColliderData(halfExtents = vec3f(40, 0.5, 40), tags = @[Ground]),
   )
+  # Lower ground
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, -5.0, 40.0)),
-    initBoxColliderData(halfExtents = vec3f(40, 0.5, 40), tags = @[Ground]),
+    initBoxColliderData(halfExtents = vec3f(50, 0.5, 40), tags = @[Ground]),
   )
+  # Wall
   discard scene.addEntity initBoxColliderE(
     Transform(pos: vec3f(0.0, 1.5, -39.0)),
-    initBoxColliderData(halfExtents = vec3f(40, 7, 1)),
+    initBoxColliderData(halfExtents = vec3f(50, 7, 1)),
   )
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
