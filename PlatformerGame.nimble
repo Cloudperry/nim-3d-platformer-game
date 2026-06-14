@@ -10,6 +10,7 @@ backend = "c"
 license = "MIT"
 
 # Dependencies
+# TODO: Pin all dependencies to specific commit or at least version to prevent supply chain attacks and to make the project more likely to compile in the future
 requires "nim >= 2.2.10"
 requires "confutils"
 requires "flatty"
