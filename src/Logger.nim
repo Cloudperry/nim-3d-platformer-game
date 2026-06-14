@@ -27,14 +27,13 @@ proc initLogger*(file: File, perfAvgDuration = defaultPerfAvgDuration): Logger =
   result.perfAvgDuration = perfAvgDuration
 
 proc initGlobalLogger*(file: File, perfAvgDuration = defaultPerfAvgDuration) =
-  ## Initializes the shared globalLogger used throughout the program.
   globalLogger = initLogger(file, perfAvgDuration)
 
 proc writeTerminalStatusLine*(
     l: var Logger = globalLogger, msg: Option[string] = string.none
 ) =
-  ## Rewrites the terminal's status line in place. Without a message it just redraws the
-  ## last status line content (e.g. after printing a normal log line over it).
+  ## Redraws the terminal status line in place. Without a message it just reprints the last
+  ## status line (e.g. after a normal log line was written over it).
   l.file.write '\r'
   l.file.clearLine()
 
@@ -56,8 +55,6 @@ type PerfStats* = object
   bufferDuration*: Duration
 
 proc getStatsForRange*(l: Logger = globalLogger, startI, endI: Natural): PerfStats =
-  ## Aggregates the buffered update/draw/frame times in the given index range into averages
-  ## plus the 5th/95th percentile frame times. Zero-valued (unfilled) samples are skipped.
   var count = 0
   var frameTimes: seq[Duration]
   var updateSum, drawSum, frameTimeSum = initDuration()
@@ -78,13 +75,15 @@ proc getStatsForRange*(l: Logger = globalLogger, startI, endI: Natural): PerfSta
   result.avgUpdate = updateSum div count
   result.avgDraw = drawSum div count
   result.avgFrame = frameTimeSum div count
+  # min/maxFrame are actually the 5th/95th percentile frame times, so a single slow/fast
+  # frame doesn't dominate the displayed stats.
   result.minFrame = frameTimes[round((count - 1) * 0.05).int]
   result.maxFrame = frameTimes[round((count - 1) * 0.95).int]
   result.bufferDuration = frameTimeSum
 
 proc logPerf*(update, draw, frame: Duration, logger: var Logger = globalLogger) =
   ## Records one frame's update/draw/frame durations and, once perfAvgDuration has elapsed,
-  ## updates the status line with averaged timing and FPS stats.
+  ## refreshes the status line with averaged timing and FPS.
   logger.updateTimes.push update
   logger.drawTimes.push draw
   logger.frameTimes.push frame

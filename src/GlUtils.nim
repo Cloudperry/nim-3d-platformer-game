@@ -217,9 +217,9 @@ macro makeGlObjects*(
     alignTable: static Table[string, int] = dontAlignByType,
     body: typed,
 ): untyped =
-  ## Walks the object types in `body` and inserts `{.align.}` pragmas on their fields so the
-  ## memory layout matches the std140 GPU layout, letting them be uploaded straight into
-  ## uniform buffers. `unknownAlignment` controls what happens for types with no known alignment.
+  ## Inserts `{.align.}` pragmas on the fields of the object types in `body` so their memory
+  ## layout matches std140 and they can be uploaded straight into uniform buffers.
+  ## `unknownAlignment` controls the behaviour for types with no known alignment.
   for n in body:
     if n.kind == nnkTypeSection:
       for typeDef in n:
@@ -519,9 +519,9 @@ proc initVertexBuffer*[T: object](
     treatInvalidTypesAsPadding: bool = false,
     fieldOverrides: Option[Table[string, GLenum]] = Table[string, GLenum].none,
 ): VertexBufferRef[T] =
-  ## Creates a vertex buffer and derives its attribute layout by inspecting each field of T,
-  ## mapping Nim/glm types to GL attribute types. Optionally uploads initial data. Unknown
-  ## field types raise unless treated as padding or overridden via `fieldOverrides`.
+  ## Creates a vertex buffer, deriving its attribute layout from T's fields (Nim/glm types
+  ## mapped to GL attribute types). Unknown field types raise unless treated as padding or
+  ## overridden via `fieldOverrides`.
   result = new VertexBufferRef[T]
 
   glGenBuffers(1, addr result.id)

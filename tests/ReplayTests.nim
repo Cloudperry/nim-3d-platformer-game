@@ -9,10 +9,7 @@ import ../src/Tester
 #
 # The names are hardcoded based on the current testData/ contents for now.
 const replayTestNames = [
-  "flyingCameraTest1",
-  "jumpTest1",
-  "jumpTest2",
-  "walljumpParkourTest1",
+  "flyingCameraTest1", "jumpTest1", "jumpTest2", "walljumpParkourTest1",
   "walljumpParkourTest2",
 ]
 

@@ -29,6 +29,9 @@ proc contains(e1, e2: Entity): bool =
 
 proc nextafter(x, y: float64): float64 {.importc, header: "<math.h>".}
 proc nextafterf(x, y: float32): float32 {.importc, header: "<math.h>".}
+# nextUp/nextDown return the next representable float toward +/-Inf. Used below to nudge
+# overlap tests and push-out distances by one ULP so floating point rounding doesn't leave
+# the entity exactly flush (which would make contact detection flicker).
 proc nextUp[T: float | float32](x: T): T =
   nextafter(x, Inf)
 
@@ -44,10 +47,9 @@ proc getPenetrationVector(e1, e2: Entity): Vec3f =
   return vec3f(overlapX, overlapY, overlapZ)
 
 proc resolveCollisions*(e: var Entity, s: Scene): CollisionResult =
-  ## Pushes the entity out of any level colliders it overlaps and zeroes the velocity
-  ## component along each axis it was pushed on. Resolves on the axis of smallest
-  ## penetration first, which gives sliding along walls/floors. Returns the total push
-  ## vector and the ids of the colliders that were hit.
+  ## Pushes the entity out of overlapping level colliders, resolving the smallest-penetration
+  ## axis first (so it slides along walls/floors) and zeroing velocity on each pushed axis.
+  ## Returns the push vector and the ids of the hit colliders.
   # NOTE: Double check that the logic for leaving player barely inside the collider 
   # makes sense. It is probably wrong in some edge case.
   for i in s.colliderIds:

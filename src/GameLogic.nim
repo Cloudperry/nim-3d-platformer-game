@@ -83,9 +83,8 @@ template scene*(game: GameStateRef): untyped =
   game.scene
 
 proc makeActions*(game: GameStateRef): Actions[ActionNames] =
-  ## Builds the action table mapping each ActionName to a closure that mutates game state
-  ## (movement direction, turn vector, delta/mono time). The same table is used for live
-  ## input, recording and replay playback.
+  ## Builds the action table mapping each ActionName to a closure that mutates game state.
+  ## The same table is used for live input, recording and replay playback.
   return {
     MoveFwd: initBoolAction(
       proc(pressed: bool) =
@@ -128,9 +127,8 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
   }.toTable
 
 proc initGameState*(conf = none Config): GameStateRef =
-  ## Creates and initializes the game state: loads config (from the argument or the command
-  ## line), sets up the replay system for recording/playback/live input, loads the test
-  ## scene and applies the player settings from config.
+  ## Creates and initializes the game state: loads config (from the argument or command
+  ## line), sets up the replay system, loads the test scene and applies the player settings.
   # Initialize game state and load config
   result = GameStateRef()
   result.conf =
@@ -165,9 +163,8 @@ proc initGameState*(conf = none Config): GameStateRef =
   result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
 
 proc preUpdate*(game: GameStateRef) =
-  ## Resets per-frame input, then either records the current frame's timing (when recording)
-  ## or plays back the next replay actions (when replaying). Run this before reading input
-  ## and before update().
+  ## Resets per-frame input, then records this frame's timing (when recording) or plays back
+  ## the next replay actions (when replaying). Run before reading input and before update().
   game.player.turnVec = vec2f(0)
   game.player.moveDirection = vec3f(0)
   if game.conf.replayName.len <= 0:

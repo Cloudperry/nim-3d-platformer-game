@@ -86,8 +86,8 @@ proc initScene*[T](
     result.ambientLightColor = ambientLight.get
 
 proc addEntity*(s: var Scene, e: Entity): int =
-  ## Adds an entity to the scene, registers it as a child of the root and tracks it in
-  ## colliderIds if it is a box collider. Returns the index of the added entity.
+  ## Adds an entity, registers it as a child of the root and tracks it in colliderIds if it
+  ## is a box collider. Returns the index of the added entity.
   if s.entities.high <= s.firstFreeEntitySlot:
     s.entities.add e
     s.firstFreeEntitySlot += 1
@@ -98,8 +98,8 @@ proc addEntity*(s: var Scene, e: Entity): int =
   return s.entities.high
 
 proc updatePlayer(e: var Entity, s: Scene, frame: FrameState) =
-  ## Updates a player entity for one frame: applies camera rotation, then movement based
-  ## on the current mode (flying camera or walking FPS controls).
+  ## Updates a player for one frame: camera rotation, then movement for the current mode
+  ## (flying camera or walking FPS controls).
   let player = e.player
   # Camera rotation
   e.doCameraRotation(player.turnVec.x, player.turnVec.y, e.player.cameraOpts)
@@ -110,6 +110,8 @@ proc updatePlayer(e: var Entity, s: Scene, frame: FrameState) =
   of Walking:
     e.doWalkingPlayerMovement(s, frame.deltaTime, frame.monoTime)
 
+# Maps each entity kind to the set of component kinds it has, so update() can dispatch to
+# the right per-component logic (megastruct pattern).
 const components: Table[EntityKind, set[EntityKind]] = {
   BoxCollider: {BoxCollider},
   Camera: {Camera},

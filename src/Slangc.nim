@@ -28,7 +28,6 @@ proc short(s: ShaderStage): string =
   of Compute: "Comp"
 
 proc getOutputFilename*(o: SlangcOptions): string =
-  ## Derives the compiled shader's output file name from the input file, stage and target.
   let inputName = o.inFile.split(".")
   return fmt"{inputName[0]}{o.stage.short()}.{o.target.fileExt()}"
 
@@ -43,7 +42,6 @@ proc initSlangcOptions*(
     entryPoint = getEntryPoint(stage),
     target = SlangcOptions.default.target,
 ): SlangcOptions =
-  ## Creates slangc options for a shader file/stage and computes the output file name.
   result = SlangcOptions(inFile: inFile, entryPoint: entryPoint, target: target, stage: stage)
   result.updateOutputFilename()
 
@@ -74,8 +72,8 @@ proc makeSlangCmd(o: SlangcOptions, slangPath = ""): string =
   return fmt"{slangBin} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
 
 proc compileShaderOrRaise*(o: SlangcOptions, slangPath = ""): string =
-  ## Runs slangc with the given options and returns the compiled shader source, raising an
-  ## exception with the compiler output if compilation fails.
+  ## Runs slangc and returns the compiled shader source, raising with the compiler output
+  ## on failure.
   let cmdRes = o.makeSlangCmd(slangPath).execCmdEx()
   if cmdRes.exitCode != 0:
     raise newException(

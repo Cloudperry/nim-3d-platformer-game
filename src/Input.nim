@@ -53,8 +53,7 @@ type
     Recorder
 
   ReplayBuffer*[A: enum] = CircularBuffer[replayBufSize, RecordedAction[A]]
-  ## Drives input handling in one of three modes: live input only, recording input to a
-  ## file, or replaying input from a file.
+  ## Drives input in one of three modes: live input, recording to a file, or replaying.
   ReplaySystem*[A] = object
     buf*: ReplayBuffer[A]
     actions: Actions[A]
@@ -177,8 +176,8 @@ proc addRecordingInputReader*[A, I: enum, T](
     deltaTime: float,
     recordingEnabled: bool,
 ) =
-  ## Reads each mapped input via `reader`, runs its action, and (when recording is enabled)
-  ## records the actions that actually fired so they can be replayed for this tick.
+  ## Reads each mapped input via `reader`, runs its action, and (when recording) records the
+  ## actions that actually fired so they can be replayed for this tick.
   for inputName, actionName in inputsToActions.pairs:
     if actionName in rs.actions:
       let input = reader(inputName).wrapInput()
@@ -195,8 +194,8 @@ proc recordFrameData*[A, T](
     data: T,
     recordingEnabled: bool,
 ) =
-  ## Records a single piece of per-frame data (e.g. delta time or mono time) for a tick so
-  ## that playback reproduces the same timing. Does nothing when recording is disabled.
+  ## Records one piece of per-frame data (e.g. delta/mono time) for a tick so playback
+  ## reproduces the same timing. No-op when recording is disabled.
   if recordingEnabled:
     let input = wrapInput(data)
     rs.recordActionAndFlushToFile RecordedAction[A](
@@ -215,7 +214,6 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
   ## Plays back all recorded actions for the given tick, refilling the buffer from the file
   ## as needed. Returns true while the replay is still playing and false once it ends.
   result = true
-    # This function returns true while the replay is being played back and false when the replay has ended
 
   var i = max(0, rs.lastPlayedI + 1)
     # Skip past actions that were already played during previous ticks 

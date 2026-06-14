@@ -3,8 +3,8 @@ import ./glad/gl
 import ./[SceneTypes]
 
 proc perspectiveRH*[T](fovy, aspect, zNear, zFar: T): Mat4[T] =
-  ## Builds a right-handed perspective projection matrix. The signs are flipped compared
-  ## to a standard glm perspective to match this engine's coordinate conventions.
+  ## Right-handed perspective matrix with signs flipped from glm's to match this engine's
+  ## coordinate conventions.
   let tanHalfFovy = tan(fovy / T(2))
   result = mat4[T](0.0)
   result[0, 0] = -T(1) / (aspect * tanHalfFovy)
@@ -15,8 +15,7 @@ proc perspectiveRH*[T](fovy, aspect, zNear, zFar: T): Mat4[T] =
   result[3, 2] = -(T(2) * zFar * zNear) / (zFar - zNear)
 
 proc updateProjectionMat*(c: var CameraData) =
-  ## Recomputes the camera's projection matrix from its current settings. Call this after
-  ## changing the aspect ratio, FOV or clip planes (e.g. on window resize).
+  ## Recomputes the projection matrix; call after changing aspect ratio, FOV or clip planes.
   case c.kind
   of Orthographic:
     let (frustumW, frustumH) = (c.frustumLength * c.aspectRatio, c.frustumLength)
@@ -66,8 +65,7 @@ proc getLocalDirections*(c: CameraData): tuple[forward, right, up: Vec3f] =
   return (forward, right, up)
 
 proc updateTransform*(e: var Entity) =
-  ## Refreshes the camera's direction vectors and view matrix to match the entity's
-  ## current position and rotation. Call this whenever the player moves or turns.
+  ## Refreshes the camera's direction vectors and view matrix from the entity's transform.
   (e.camera.forward, e.camera.right, e.camera.up) = e.camera.getLocalDirections()
   e.camera.viewMat = lookAt(e.t.pos, e.t.pos + e.camera.forward, e.camera.up)
 
@@ -77,8 +75,8 @@ proc moveLocally*(e: var Entity, co: FpCameraOptions, moveDirection: Vec3f, dt: 
   e.t.pos += moveBy.x * right + moveBy.y * up - moveBy.z * forward
 
 proc getLocalPlaneMoveDir*(c: var CameraData, moveDirection: Vec3f): Vec3f =
-  ## Maps a local input move direction onto the horizontal (XZ) plane using the camera's
-  ## yaw, ignoring pitch. Used for ground movement so looking up/down doesn't affect speed.
+  ## Projects a move direction onto the horizontal (XZ) plane using yaw only, so looking
+  ## up/down doesn't affect ground movement speed.
   let moveDir = moveDirection.normalize()
   let
     cosYaw = cos(c.yaw + PI / 2)
@@ -88,8 +86,8 @@ proc getLocalPlaneMoveDir*(c: var CameraData, moveDirection: Vec3f): Vec3f =
   return moveDir.x * planeRight - moveDir.z * planeForward
 
 proc rotate*(c: var CameraData, co: FpCameraOptions, deltaX, deltaY: float) =
-  ## Applies mouse deltas to the camera's yaw and pitch. Pitch is clamped to avoid
-  ## flipping over and yaw is kept within -180..180 degrees.
+  ## Applies mouse deltas to yaw and pitch. Pitch is clamped to avoid flipping over; yaw
+  ## is wrapped to -180..180 degrees.
   let deltaYaw = deltaX * co.yawScale * co.sensitivity
   let deltaPitch = deltaY * co.pitchScale * co.sensitivity
 
@@ -111,8 +109,8 @@ proc doCameraRotation*(e: var Entity, deltaX, deltaY: float, co: FpCameraOptions
     e.updateTransform()
 
 proc doFlyingCameraMovement*(e: var Entity, co: FpCameraOptions, dt: float) =
-  ## Moves a free-flying (noclip) camera based on the current move direction. Horizontal
-  ## movement uses the camera's local plane directions and vertical movement is world up/down.
+  ## Moves a free-flying (noclip) camera: horizontal along the camera's plane directions,
+  ## vertical along world up/down.
   if e.player.moveDirection != vec3f(0):
     # Quick and messy fix for weird feeling vertical movement (doesn't use "correct" move speed)
     let moveDirectionPlane =

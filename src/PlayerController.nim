@@ -30,9 +30,8 @@ proc applyGroundFriction(p: var PlayerData, dt: float) =
 proc accelerate(
     p: var PlayerData, targetDir: Vec3f, targetSpeed, accel: float32, dt: float
 ) =
-  ## Quake-style acceleration: only adds speed up to targetSpeed along targetDir. Because
-  ## it caps the speed *projected* onto the target direction rather than the total speed,
-  ## strafing while turning lets the player gain extra speed (bunny hopping/air strafing).
+  ## Quake-style acceleration: adds speed only up to targetSpeed *projected* onto targetDir,
+  ## not total speed. This is what lets strafing while turning gain extra speed (bunny hopping).
   let speedTowardsTarget = p.velocity.dot(targetDir)
   let addSpeed = targetSpeed - speedTowardsTarget
   if addSpeed > 0:
@@ -41,14 +40,14 @@ proc accelerate(
 
 proc doJumpingAndGravity(e: var Entity, dt: float, monoTime: MonoTIme) =
   ## Handles jumping, wall jumping and gravity. A normal jump is allowed within coyoteTime
-  ## of touching the ground. A wall jump is allowed within coyoteTime of touching a wall,
-  ## as long as that wall wasn't already used for the current wall jump, and launches the
-  ## player 45 degrees up and away from the wall.
+  ## of the ground; a wall jump within coyoteTime of an unused wall, launching the player 45
+  ## degrees up and away from it.
   if e.player.moveDirection.y > 0:
     if monoTime - e.player.lastGroundTouch < coyoteTime and not e.player.jumping:
       e.player.jumping = true
       e.player.velocity.y += jumpForce
     elif monoTime - e.player.lastWallTouch < coyoteTime and
+        # `*` is IntSet intersection: only wall-jump if the touched wall wasn't already used.
         len(e.player.lastTouchedWallColliders * e.player.lastJumpedWallColliders) == 0:
       e.player.lastJumpedWallColliders = e.player.lastTouchedWallColliders
       let rotateAxis = cross(vec3f(0, 1, 0), e.player.lastWallTouchDir)
@@ -64,9 +63,8 @@ proc capVelocityAndMove(e: var Entity, dt: float) =
   e.t.pos += e.player.velocity * dt
 
 proc handleCollisions(e: var Entity, s: Scene, monoTime: MonoTime) =
-  ## Resolves collisions and records ground/wall contact based on the push direction. A
-  ## mostly-upward push counts as touching the ground (and resets jump state); a mostly-
-  ## sideways push counts as touching a wall, which enables wall jumping.
+  ## Resolves collisions and records ground/wall contact from the push direction: a mostly-
+  ## upward push counts as ground (resets jump state), a mostly-sideways push counts as a wall.
   let collision = e.resolveCollisions(s)
   if collision.colliderIds.len > 0:
     let cosPushVec = collision.pushVec.normalize().y
@@ -81,9 +79,8 @@ proc handleCollisions(e: var Entity, s: Scene, monoTime: MonoTime) =
       e.player.lastWallTouchDir = collision.pushVec.normalize()
 
 proc doWalkingPlayerMovement*(e: var Entity, s: Scene, dt: float, monoTime: MonoTime) =
-  ## Runs one tick of the FPS walking movement: friction (only when grounded), Quake-style
-  ## ground/air acceleration, jumping and gravity, velocity capping, collision resolution
-  ## and finally refreshing the camera transform.
+  ## Runs one tick of FPS walking: friction (only when grounded), ground/air acceleration,
+  ## jumping and gravity, velocity capping, collision resolution and camera refresh.
   let moveDirectionPlane = vec3f(e.player.moveDirection.x, 0, e.player.moveDirection.z)
   let targetDir = e.camera.getLocalPlaneMoveDir(moveDirectionPlane)
   let targetSpeed = min(targetDir.length() * maxRunSpeed, maxRunSpeed)

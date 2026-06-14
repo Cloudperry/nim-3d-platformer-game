@@ -26,8 +26,8 @@ type
     moveSpeed*: float = 9
     # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
 
-  ## Camera state. Holds the orientation (yaw/pitch + cached basis vectors), the view and
-  ## projection matrices and the projection-specific parameters (ortho frustum or perspective FOV).
+  ## Camera state: orientation (yaw/pitch + cached basis vectors), view/projection matrices
+  ## and the projection-specific parameters (ortho frustum or perspective FOV).
   CameraData* = object
     # Positive yaw means turning left and positive pitch means turning up
     yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
@@ -136,8 +136,8 @@ type
     Flying
     Walking
 
-  ## Movement/physics state for the player: mode, velocity, input direction and the timing
-  ## and collider bookkeeping needed for coyote time, jumping and wall jumping.
+  ## Player movement/physics state: mode, velocity, input direction and the timing/collider
+  ## bookkeeping for coyote time, jumping and wall jumping.
   PlayerData* = object
     mode*: MovementMode
     cameraOpts*: FpCameraOptions
@@ -157,8 +157,8 @@ type
 template addSafeComponentAccessors(
     fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]
 ): untyped =
-  ## Generates getter/setter templates for an optional entity component field that assert
-  ## the entity is of an allowed kind and actually has the component before unwrapping it.
+  ## Generates getter/setter templates for an optional component field that assert the entity
+  ## is an allowed kind and has the component before unwrapping it.
   template fieldName*(e: Entity): untyped =
     assert e.kind in allowedKinds and e.hiddenFieldName.isSome,
       "Entity of type " & $e.kind & " doesn't have the field " &
