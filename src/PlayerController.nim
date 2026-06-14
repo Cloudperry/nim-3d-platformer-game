@@ -13,8 +13,6 @@ const
   airAccelerationScale = 10'f32
   frictionScale = 4'f32
   stopSpeed = 1.905'f32
-  forwardSpeed = 7.62'f32
-  sideSpeed = 7.62'f32
 
 proc applyGroundFriction(p: var PlayerData, dt: float) =
   let speed = p.velocity.length()
