@@ -27,6 +27,7 @@ archive_path="$release_dir.tar.xz"
 
 game_bin="bin/platformer-game"
 tester_bin="bin/platformer-game-tester"
+replay_tests_bin="bin/platformer-game-replay-tests"
 
 nimble build -d:release -d:glfwStaticLib
 
@@ -45,6 +46,12 @@ mkdir -p "$release_dir"
 
 mv "$game_bin" "$tester_bin" "$release_dir/"
 cp -a testData "$release_dir/"
+
+# Bundle a debug build of the replay regression tests under tests/ so the
+# release can be verified on the target machine.
+nim c -d:debug -o:"$replay_tests_bin" tests/ReplayTests.nim
+mkdir -p "$release_dir/tests"
+mv "$replay_tests_bin" "$release_dir/tests/"
 
 if ! nim r -d:debug src/Game.nim --compileShadersAndQuit --slangBinPath="$slang_bin_path"; then
   echo "Shader compilation failed (is slangc installed in PATH or passed as an argument?)." >&2

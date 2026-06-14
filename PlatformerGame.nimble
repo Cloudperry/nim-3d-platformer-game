@@ -16,3 +16,8 @@ requires "confutils"
 requires "flatty"
 requires "https://github.com/stavenko/nim-glm#47d5f8681f3c462b37e37ebc5e7067fa5cba4d16"
 requires "glfw == 3.4.0.5"
+requires "https://github.com/status-im/nim-unittest2"
+
+# Tasks
+task test, "Run the replay regression tests":
+  exec "nim c --hints:off -r tests/ReplayTests.nim"

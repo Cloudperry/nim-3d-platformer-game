@@ -85,7 +85,7 @@ proc runTest(t: Test): bool =
 
   return game.scene == t.endState
 
-proc runTest(testName: string): bool =
+proc runTest*(testName: string): bool =
   let testPath = "testData" / testName
   let testStorage = initStateStorage[Test](testPath)
   let test = testStorage.loadState(Test)
