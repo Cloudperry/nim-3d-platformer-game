@@ -4,9 +4,25 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+print_usage() {
+  echo "Usage: $0 [slang-binary-path]"
+  echo "  [slang-binary-path]  Optional directory containing the slangc shader compiler."
+  echo "                       If omitted, slangc is looked up from PATH."
+}
+
+slang_bin_path=""
+if [[ $# -ge 1 ]]; then
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    print_usage
+    exit 0
+  fi
+  slang_bin_path="$1"
+fi
+
 release_date="$(date +%Y-%m-%d)"
 release_root="releases"
-release_dir="$release_root/$release_date"
+release_name="platformer-game-release-$release_date"
+release_dir="$release_root/$release_name"
 archive_path="$release_dir.tar.xz"
 
 game_bin="bin/platformer-game"
@@ -30,7 +46,11 @@ mkdir -p "$release_dir"
 mv "$game_bin" "$tester_bin" "$release_dir/"
 cp -a testData "$release_dir/"
 
-nim r -d:debug src/Game.nim --compileShadersAndQuit
+if ! nim r -d:debug src/Game.nim --compileShadersAndQuit --slangBinPath="$slang_bin_path"; then
+  echo "Shader compilation failed (is slangc installed in PATH or passed as an argument?)." >&2
+  print_usage >&2
+  exit 1
+fi
 
 mkdir -p "$release_dir/shaders"
 find shaders -maxdepth 1 -type f -name "*.glsl" -print0 |
