@@ -19,7 +19,14 @@ Peliä pelataan näppäimistöllä ja hiirellä. Pelissä on sekä QWERTY että 
 | Lennä alas (lentotila) | vasen Shift | vasen Shift tai ' |
 | Käännä kameraa | hiiri | hiiri |
 
-Kävelytilassa (`Walking`) pelaaja liikkuu kuin FPS-pelissä ja hyppynäppäimellä voi tehdä myös seinähyppyjä. Pelaaja hyppää automaattisesti osuessaan maahan/seinään, jos välilyöntiä pitää pohjassa. Lentotilassa (`Flying`) kamera lentää vapaasti ja Shiftillä (tai `'`) pääsee alaspäin.
+Kävelytilassa (`Walking`) pelaaja liikkuu kuin FPS-pelissä ja hyppynapilla voi tehdä myös seinähyppyjä. Pelaaja hyppää automaattisesti osuessaan maahan/seinään, jos välilyöntiä pitää pohjassa. Lentotilassa (`Flying`) kamera lentää vapaasti ja Shiftillä (tai `'`) pääsee alaspäin.
+
+# Uusintojen katsominen
+
+- Peli osaa tallentaa/toistaa uusintoja pelauksesta
+- Voit katsoa pelin testidatassa olevia uusintoja esim. komennolla `./platformer-game --replayName=testData/jumpTest1` tai `./platformer-game --replayName=testData/walljumpParkourTest1`
+- Tällä hetkellä peli renderöi näytön virkistystaajuudella, mutta simulaatio etenee uusintaa katsoessa sen määrittämällä nopeudella. Siksi esim. 60 hz näytöllä äänitetty uusinta näytettäisiin 2x nopeammin 120 hz näytöllä. 
+- Repositoriossa olevat uusinnat ovat 60 hz, joten ne näkyvät normaalilla nopeudella 60 hz näytöllä  
 
 # Pelin asetukset
 

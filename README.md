@@ -2,6 +2,8 @@
 
 Tämä on mahdollisimman yksinkertainen 3D platformer peli, jossa pelaaja voi juosta, hyppiä ja hypätä seinästä. Tasoissa on mahdollista käyttää pelkästään laatikoita ja niitä ei voi kääntää. Pelaajan liikkuminen on suunnilleen Counter-Strike 1.6 kaltainen, mutta nopeus on nopeampi ja pelaaja voi lisäksi hypätä seinästä.
 
+Pelissä ei ole tällä hetkellä mitään tavoitetta, mutta testitasossa voi taitavilla seinähypyillä päästä katolle. Tämä näytetään testin `walljumpParkourTest1` käyttämässä uusinnassa.
+
 Peli on tehty Nim ohjelmointikielellä ja OpenGL grafiikkakirjastolla.
 
 # Dokumentaatio
