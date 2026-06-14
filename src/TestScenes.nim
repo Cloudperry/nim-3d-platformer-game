@@ -41,7 +41,7 @@ proc loadTestScene*(scene: var Scene): int =
   # Pyramid
   scene.addPyramid(0.5'f32, shapeColor, Transform(pos: vec3f(-2, 0, -2)))
   # Sphere
-  scene.addSphere(0.5, 100, 100, shapeColor, Transform(pos: vec3f(2, 0, -2)))
+  scene.addSphere(0.5, 32, 32, shapeColor, Transform(pos: vec3f(2, 0, -2)))
 
   # Set camera options to defaults. Mouse sensitivity is fast on a gaming mouse, but might be too slow for a normal mouse.
   var cam = initPerspectiveCamera(80, 150 / 100, 0.1, 100)
