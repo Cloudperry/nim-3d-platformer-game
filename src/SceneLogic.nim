@@ -49,9 +49,7 @@ proc initPlayerE*(
     parentIds: @[rootID],
   )
 
-proc initBoxColliderData*(
-    halfExtents: Vec3f, tags = @[LevelGeo]
-): BoxColliderData =
+proc initBoxColliderData*(halfExtents: Vec3f, tags = @[LevelGeo]): BoxColliderData =
   ## Creates box collider data with the given half-extents, defaulting to level geometry tags.
   BoxColliderData(halfExtents: halfExtents, tags: tags)
 

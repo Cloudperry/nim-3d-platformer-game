@@ -8,10 +8,10 @@ Peli on tehty Nim ohjelmointikielellä ja OpenGL grafiikkakirjastolla.
 
 # Dokumentaatio
 - [Käyttöohje ja asennus](dokumentaatio/ohje.md)
-- [Vaatimusmäärittely](dokumentaatio/vaatimusmaarittely.md)
 - [Arkkitehtuurikuvaus](dokumentaatio/arkkitehtuuri.md)
 - [Testausdokumentti](dokumentaatio/testaus.md)
 - [Työaikakirjanpito](dokumentaatio/tuntikirjanpito.md)
+- [Tekoälyn käyttö projektissa](dokumentaatio/ai.md)
 
 # Projektin historia
 

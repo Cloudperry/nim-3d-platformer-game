@@ -34,7 +34,8 @@ proc getOutputFilename*(o: SlangcOptions): string =
 proc updateOutputFilename(o: var SlangcOptions) =
   o.outFile = o.getOutputFilename()
 
-proc getEntryPoint*(stage: ShaderStage): string = fmt"{stage}Main"
+proc getEntryPoint*(stage: ShaderStage): string =
+  fmt"{stage}Main"
 
 proc initSlangcOptions*(
     inFile: string,
@@ -42,7 +43,8 @@ proc initSlangcOptions*(
     entryPoint = getEntryPoint(stage),
     target = SlangcOptions.default.target,
 ): SlangcOptions =
-  result = SlangcOptions(inFile: inFile, entryPoint: entryPoint, target: target, stage: stage)
+  result =
+    SlangcOptions(inFile: inFile, entryPoint: entryPoint, target: target, stage: stage)
   result.updateOutputFilename()
 
 proc `inFile=`*(o: var SlangcOptions, path: string) =
@@ -58,18 +60,21 @@ proc `stage=`*(o: var SlangcOptions, s: ShaderStage) =
   o.updateOutputFilename()
 
 proc makeSlangCmd(o: SlangcOptions, slangPath = ""): string =
-  let slangBin = if slangPath.len > 0:
-    slangPath / "slangc"
-  else:
-    findExe("slangc")
+  let slangBin =
+    if slangPath.len > 0:
+      slangPath / "slangc"
+    else:
+      findExe("slangc")
   if slangBin.len == 0:
     raise newException(Exception, "Failed to find slangc in PATH")
 
-  let entryPointOptArg = if o.entryPoint.len > 0:
-    fmt" -entry {o.entryPoint}"
-  else:
-    ""
-  return fmt"{slangBin} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
+  let entryPointOptArg =
+    if o.entryPoint.len > 0:
+      fmt" -entry {o.entryPoint}"
+    else:
+      ""
+  return
+    fmt"{slangBin} {o.inFile} -no-mangle -target {o.target} -stage {o.stage}{entryPointOptArg} -profile glsl_460 -o {o.outFile}"
 
 proc compileShaderOrRaise*(o: SlangcOptions, slangPath = ""): string =
   ## Runs slangc and returns the compiled shader source, raising with the compiler output
@@ -84,14 +89,10 @@ proc compileShaderOrRaise*(o: SlangcOptions, slangPath = ""): string =
 
 if isMainModule:
   let vertOpts = initSlangcOptions(
-    stage = Vertex,
-    inFile = "shaders/HelloTriangle.slang",
-    target = Glsl,
+    stage = Vertex, inFile = "shaders/HelloTriangle.slang", target = Glsl
   )
   echo compileShaderOrRaise(vertOpts)
   let fragOpts = initSlangcOptions(
-    stage = Fragment,
-    inFile = "shaders/HelloTriangle.slang",
-    target = Glsl,
+    stage = Fragment, inFile = "shaders/HelloTriangle.slang", target = Glsl
   )
   echo compileShaderOrRaise(fragOpts)

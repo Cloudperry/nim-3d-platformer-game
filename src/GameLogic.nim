@@ -5,8 +5,7 @@ import ./[SceneLogic, Input, TestScenes]
 type
   ## All configurable game/renderer settings. Parsed from the command line via confutils
   ## and serialized alongside replays so playback uses the same settings as recording.
-  Config* = object
-    # Game settings
+  Config* = object # Game settings
     movementMode* {.
       name: "movementMode",
       defaultValue: Walking,
@@ -29,7 +28,7 @@ type
       defaultValue: "",
       desc: "Slang shader compiler binary path (leave empty to discover from PATH)"
     .}: string
-    swapInterval * {.
+    swapInterval* {.
       name: "swapInterval",
       defaultValue: 1,
       desc: "Controls VSync (0 = VSync off, 1 = VSync on, 2 = half-rate VSync on)"
