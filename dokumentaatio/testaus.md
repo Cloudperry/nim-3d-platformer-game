@@ -1,6 +1,6 @@
 # Testausdokumentti
 
-Peliä testataan tällä hetkellä lähinnä automaattisilla end-to-end -testeillä, jotka ajavat pelin simulaatiota pelaamisesta äänitettyjen uusintojen avulla. Kunnollista testikattavuuden mittausta on hankala toteuttaa Nim projektille, joten tässä dokumentissa keskitytään testattuihin ja testaamattomiin moduuleihin ja toiminnallisuuksiin.
+Peliä testataan tällä hetkellä lähinnä automaattisilla end-to-end -testeillä, jotka ajavat pelin simulaatiota pelaamisesta äänitettyjen uusintojen avulla. Kunnollista testikattavuuden mittausta on hankala toteuttaa Nim projektille, joten tässä dokumentissa keskitytään testattuihin ja testaamattomiin moduuleihin ja toiminnallisuuksiin. Repositorion dev branchillä on yksikkötestin kaltainen replay järjestelmään testi, joka tarkistaa että uusinnan toistamisen ja uudelleentallentamisen jälkeen uusinnan sisältö pysyy samana. Testi ei one vielä tarpeeksi hyvä release versioon, ja sen takia jätin sen dev branchille. 
 
 ## Automaattinen testaus
 
