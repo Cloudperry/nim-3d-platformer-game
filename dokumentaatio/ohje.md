@@ -68,8 +68,9 @@ Yksittäisen testin voi suorittaa testaustyökalun komennolla `./platformer-game
 # Kääntäminen lähdekoodista
 
 1. Asenna Nim Choosenim -työkalun avulla [näillä ohjeilla](https://nim-lang.org/install_unix.html)
-2. Lataa Slang shader compiler [täältä](https://github.com/shader-slang/slang/releases/) ja lisää sen bin kansio `PATH` ympäristömuuttujaan
-2. Kloonaa repositorio komennolla `git clone https://github.com/Cloudperry/nim-3d-platformer-game.git && cd nim-3d-platformer-game`
-3. Suorita repositorion kansiossa komento `nimble install` asentaaksesi sovelluksen oman käyttäjän kotikansion alle tai `nimble releaseBuild` luodaksesi suoritettavan binäärin repositorioon `bin` kansion alle
-4. Pelin suorittaminen, uusintojen tallentaminen sekä yksittäisen testin luonti/suorittaminen onnistuu samoilla komennoilla kuin aikaisemmissa ohjeissa, mutta `./platformer-game` ja `./platformer-game-test` polun eteen laitetaan bin kansio (esim. ``./bin/platformer-game``)
-5. Kaikki testit voi suorittaa komennolla `nimble test` samassa kansiossa
+2. Lataa sovelluksen käyttämä ikkunanhallintakirjasto GLFW 3 (esim. Debianilla/Ubutulla saa ladattua komennolla `sudo apt install libglfw3`)
+3. Lataa Slang shader compiler [täältä](https://github.com/shader-slang/slang/releases/) ja lisää sen bin kansio `PATH` ympäristömuuttujaan
+4. Kloonaa repositorio komennolla `git clone https://github.com/Cloudperry/nim-3d-platformer-game.git && cd nim-3d-platformer-game`
+5. Suorita repositorion kansiossa komento `nimble install` asentaaksesi sovelluksen oman käyttäjän kotikansion alle tai `nimble releaseBuild` luodaksesi suoritettavan binäärin repositorioon `bin` kansion alle
+6. Pelin suorittaminen, uusintojen tallentaminen sekä yksittäisen testin luonti/suorittaminen onnistuu samoilla komennoilla kuin aikaisemmissa ohjeissa, mutta `./platformer-game` ja `./platformer-game-test` polun eteen laitetaan bin kansio (esim. ``./bin/platformer-game``)
+7. Kaikki testit voi suorittaa komennolla `nimble test` samassa kansiossa
