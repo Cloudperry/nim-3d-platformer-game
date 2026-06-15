@@ -91,7 +91,7 @@ proc runTest(t: Test): bool =
   game.scene = t.initialState
 
   while game.playingReplay:
-    discard game.preUpdate()
+    game.preUpdate()
     game.update()
 
   return game.scene == t.endState
