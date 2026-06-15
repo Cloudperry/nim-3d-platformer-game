@@ -22,15 +22,20 @@ type
     case cmd* {.command.}: TesterCliCmd
     of makeTest:
       replayName* {.
+        name: "replayName",
         desc:
-          "Replay path to make a test from. Doesn't include the replay file extension.",
-        name: "replayName"
+          "Replay path to make a test from. Doesn't include the replay file extension"
+      .}: string
+      savedTestName* {.
+        name: "savedTestName",
+        defaultValue: "",
+        desc: "Name for the test to be saved as"
       .}: string
     of runTest:
       testName* {.
+        name: "testName",
         desc:
-          "Test path to run. Doesn't include any file extensions used in the test/replay data files.",
-        name: "testName"
+          "Path for the test to run. Doesn't include any file extensions used in the test/replay data files"
       .}: string
 
 type Test = object
@@ -57,11 +62,8 @@ proc makeTestFromReplay(replayName: string): Test =
   result.endState = game.scene
   game.deinit()
 
-proc makeTestCli(replayName: string) =
-  stdout.write "Enter a name for saving the test data: "
-  let name = stdin.readLine()
-  doAssert name.len > 0, "You nust enter a name to save the test"
-  let testPath = "testData" / name
+proc makeTest*(replayName, testName: string) =
+  let testPath = "testData" / testName
   let replayFilename = ActionNames.getReplayFilename(replayName)
   let configFilename = Config.getDataBlobFilename(replayName)
   let newReplayFilename = ActionNames.getReplayFilename(testPath)
@@ -73,6 +75,15 @@ proc makeTestCli(replayName: string) =
   echo fmt"Test data created from replay {replayName}. Replay and config moved to {newReplayFilename} and {newConfigFilename}."
   let testStorage = initStateStorage[Test](testPath)
   testStorage.saveState(test)
+
+proc makeTestCli(replayName, testName: string) =
+  var name = testName
+  if name == "":
+    stdout.write "Enter a name for saving the test data: "
+    name = stdin.readLine()
+    doAssert name.len > 0, "You nust enter a name to save the test"
+
+  makeTest(replayName, name)
 
 proc runTest(t: Test): bool =
   let conf = getReplayPlaybackConfig(t.replayName)
@@ -95,6 +106,6 @@ when isMainModule:
   let conf = TesterConf.load()
   case conf.cmd
   of makeTest:
-    makeTestCli(conf.replayName)
+    makeTestCli(conf.replayName, conf.savedTestName)
   of runTest:
     echo runTest(conf.testName)
