@@ -1,4 +1,4 @@
-# Ojelmistotekniikka hyväksiluku fps peli (tee SISU ilmo!) 
+# Tuntikirjanpito
 
 - 5.9.2025 1h Aloitettu projekti ja tehty kirjastojen hakua ja OpenGL pohja valmiista esimerkistä.
 
@@ -60,7 +60,4 @@
 
 - 13.6.2026 4h Luotu skripti, joka pakkaa pelin ja kaiken olennaisen datan release buildia varten .tar.xz tiedostoon. Muutettu projektia niin, että pakattu release versio toimii suoraan Cubbli koneilla. Tätä varten piti mm. poistaa kovakoodattuja polkuja ja muuttaa shaderien latausta niin, että se ei vaadi Slang shader compileria.
 
--
-
-
-
+- 14.6.-15.6. 10h Korjattu Cubblia varten tehtyjen shader compilation muutosten aiheuttamia bugeja. Paranneltu release paketin luontia. Lisätty 3D ympäristöjen luontiin SceneBuilder kirjasto. Lisätty unittest2 testauskirjastoa käyttävä testi, joka ajaa kaikki replay järjestelmään pohjautuvat testit. Kirjotettu paljon dokumentaatiota.
