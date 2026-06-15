@@ -59,6 +59,12 @@ Testin luonti:
 
 Yksittäisen testin voi suorittaa testaustyökalun komennolla `./platformer-game-tester runTest --testName=<nimi>`
 
+# Release paketin luominen
+
+1. Lataa Slang shader compiler [täältä](https://github.com/shader-slang/slang/releases/), pura se kansioon ja lisää bin kansio `PATH` ympäristömuuttujaan
+2. Lataa projektin kääntämiseen vaadittavat kirjastot (esim. Debianilla/Ubutulla saa ladattua komennolla `sudo apt install libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev libxxf86vm-dev`)
+3. Luo release paketti komennolla `./scripts/make-release.sh`. Komennon perään voi myös lisätä Slang shader compilerin bin kansion, jos ei halua lisätä sitä PATH muuttujaan.
+
 # Kääntäminen lähdekoodista
 
 1. Asenna Nim Choosenim -työkalun avulla [näillä ohjeilla](https://nim-lang.org/install_unix.html)
