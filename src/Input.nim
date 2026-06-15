@@ -1,4 +1,4 @@
-import std/[tables, streams, strformat, times, monotimes]
+import std/[tables, streams, strformat, times, monotimes, options]
 import pkg/[glm, flatty]
 import ./[Containers]
 
@@ -26,9 +26,9 @@ type
     of MonoTimeAction:
       monoTimeVal*: MonoTime
 
-  Action = object
+  Action* = object
     runOnlyWhenNonZero: bool
-    case kind*: ActionKind
+    case kind: ActionKind
     of BoolAction:
       boolFn: BoolActionFn
     of FloatAction:
@@ -210,10 +210,16 @@ proc initReplayPlayer*[A](replayName: string, actions: Actions[A]): ReplaySystem
   )
   doAssert not result.replayStream.isNil, fmt"Could not open replay file: {filename}"
 
-proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
+type ReplayPlaybackResult* = object
+  replayEnded*: bool
+  playedAction*: Option[Action]
+
+const resultReplayEnded = ReplayPlaybackResult(replayEnded: true)
+
+proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPLaybackResult =
   ## Plays back all recorded actions for the given tick, refilling the buffer from the file
-  ## as needed. Returns true while the replay is still playing and false once it ends.
-  result = true
+  ## as needed. Returns whether the replay is playing or not and which action was executed.
+  result.replayEnded = false
 
   var i = max(0, rs.lastPlayedI + 1)
     # Skip past actions that were already played during previous ticks 
@@ -225,7 +231,7 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
     # Make sure the buffer is filled with new data when needed
     if newBufferNeeded:
       if rs.replayStream.atEnd():
-        return false # End of buffer
+        return resultReplayEnded # End of buffer
       # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
       let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
       rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
@@ -235,12 +241,14 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
     # Read and play back action from replay
     let recordedAction = rs.buf.data[i]
     if recordedAction == RecordedAction[A].default:
-      return false # End of buffer
+      return resultReplayEnded # End of buffer
     elif recordedAction.tickN > tickN:
       break # Buffer data is newer than current tick
     elif recordedAction.tickN == tickN:
       # Execute action for current tick
-      discard rs.actions[recordedAction.actionName].run(recordedAction.inputs)
+      let action = rs.actions[recordedAction.actionName]
+      if action.run(recordedAction.inputs):
+        result.playedAction = some action
 
     rs.lastPlayedI = i
     i += 1

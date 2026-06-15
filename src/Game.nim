@@ -123,7 +123,7 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
     (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
 proc update(win: Window) =
-  game.preUpdate()
+  discard game.preUpdate()
 
   if game.conf.replayName.len == 0:
     # Mouse input

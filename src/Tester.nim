@@ -57,7 +57,7 @@ proc makeTestFromReplay(replayName: string): Test =
   result.initialState = game.scene
 
   while game.playingReplay:
-    game.preUpdate()
+    discard game.preUpdate()
     game.update()
   result.endState = game.scene
   game.deinit()
