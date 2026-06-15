@@ -1,11 +1,12 @@
-import std/[sugar, lenientops]
 import glad/gl
 import pkg/glm
-import ./[SceneTypes, SceneLogic, GlUtils]
+import ./[SceneLogic, GlUtils]
 
 type SimpleModel* = tuple[vertices: seq[ColoredVertex], indices: seq[GLuint]]
 
 proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
+  ## Generates the vertices and indices of an axis-aligned box centered on the origin,
+  ## with correct per-face outward normals.
   let topRightFront = halfExtents * vec3f(1.0, 1.0, 1.0)
   let topLeftFront = halfExtents * vec3f(-1.0, 1.0, 1.0)
   let botLeftFront = halfExtents * vec3f(-1.0, -1.0, 1.0)
@@ -46,6 +47,7 @@ proc makeBox*(halfExtents: Vec3f, color: Vec3f): SimpleModel =
   return (vertices: vertices, indices: indices)
 
 proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
+  ## Generates a square-based pyramid centered on the origin with per-face normals.
   let apex = vec3f(0, halfSizeLen, 0)
   let botLeftFront = vec3f(-halfSizeLen, -halfSizeLen, halfSizeLen)
   let botRightFront = vec3f(halfSizeLen, -halfSizeLen, halfSizeLen)
@@ -87,6 +89,7 @@ proc makePyramid*(halfSizeLen: float32, color: Vec3f): SimpleModel =
   return (vertices: vertices, indices: indices)
 
 proc makeSphere*(radius: float, slices, stacks: int, color: Vec3f): SimpleModel =
+  ## Generates a UV sphere from the given slice/stack counts, with smooth outward normals.
   var vertices: seq[ColoredVertex]
   var indices: seq[int]
 
@@ -117,3 +120,64 @@ proc makeSphere*(radius: float, slices, stacks: int, color: Vec3f): SimpleModel 
       indices.add(second + 1)
 
   return (vertices, indices)
+
+proc getBoundingBoxHalfExtents(model: SimpleModel): Vec3f =
+  ## Finds the bounding box half-extents of the model by finding the max coordinate
+  ## for each axis. This simple function only works properly for centered models.
+  for vertex in model.vertices:
+    result.x = max(result.x, abs(vertex.pos.x))
+    result.y = max(result.y, abs(vertex.pos.y))
+    result.z = max(result.z, abs(vertex.pos.z))
+
+proc addModel(
+    scene: var Scene[ColoredVertex],
+    model: SimpleModel,
+    transform: Transform,
+    hasCollider: bool,
+    tags: seq[ColliderTags],
+) =
+  ## Adds a model to the scene and, when hasCollider is set, a matching box collider sized
+  ## from the model's bounding box and the transform's scale.
+  scene.models.add initModel(model.vertices, model.indices, transform)
+  if hasCollider:
+    discard scene.addEntity initBoxColliderE(
+      Transform(pos: transform.pos),
+      initBoxColliderData(
+        halfExtents = model.getBoundingBoxHalfExtents() * transform.scale, tags = tags
+      ),
+    )
+
+proc addBox*(
+    scene: var Scene[ColoredVertex],
+    halfExtents, color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  ## Adds a box model (and by default a collider) to the scene.
+  scene.addModel(makeBox(halfExtents, color), transform, hasCollider, tags)
+
+proc addPyramid*(
+    scene: var Scene[ColoredVertex],
+    halfSizeLen: float32,
+    color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  ## Adds a pyramid model (and by default a collider) to the scene.
+  scene.addModel(makePyramid(halfSizeLen, color), transform, hasCollider, tags)
+
+proc addSphere*(
+    scene: var Scene[ColoredVertex],
+    radius: float,
+    slices, stacks: int,
+    color: Vec3f,
+    transform = Transform(),
+    hasCollider = true,
+    tags = @[LevelGeo],
+) =
+  ## Adds a sphere model (and by default a collider) to the scene.
+  scene.addModel(
+    makeSphere(radius, slices, stacks, color), transform, hasCollider, tags
+  )

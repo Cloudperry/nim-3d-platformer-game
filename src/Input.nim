@@ -1,6 +1,6 @@
-import std/[tables, streams, strformat, times, monotimes]
+import std/[tables, streams, strformat, times, monotimes, options]
 import pkg/[glm, flatty]
-import ./[Containers, Logger]
+import ./[Containers]
 
 const replayBufSize = 1024
 
@@ -26,9 +26,9 @@ type
     of MonoTimeAction:
       monoTimeVal*: MonoTime
 
-  Action = object
+  Action* = object
     runOnlyWhenNonZero: bool
-    case kind*: ActionKind
+    case kind: ActionKind
     of BoolAction:
       boolFn: BoolActionFn
     of FloatAction:
@@ -39,7 +39,9 @@ type
       monoTimeFn: MonoTimeActionFn
 
   # TODO: Add input contexts that can be switched to have different keybinds available (e.g. menu, in-game)
+  ## Maps action names to the callbacks that handle them.
   Actions*[A: enum] = Table[A, Action]
+  ## A single recorded action: which action, its input value and the tick it happened on.
   RecordedAction*[A: enum] = object
     tickN*: uint64
     inputs*: ActionInputs
@@ -51,6 +53,7 @@ type
     Recorder
 
   ReplayBuffer*[A: enum] = CircularBuffer[replayBufSize, RecordedAction[A]]
+  ## Drives input in one of three modes: live input, recording to a file, or replaying.
   ReplaySystem*[A] = object
     buf*: ReplayBuffer[A]
     actions: Actions[A]
@@ -61,18 +64,21 @@ type
     of Player:
       lastPlayedI: int = -1
 
-proc getReplayFilename[O: enum | object](
+proc getReplayFilename*[O: enum | object](
     storableObjectName: typedesc[O], replayName: string
 ): string =
+  ## Builds the replay file name for a given replay name, namespaced by the stored type.
   fmt"{replayName}.{$storableObjectName}.replay"
 
 proc initReplayRecorder*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+  ## Creates a replay system that runs actions from live input and records them to a file.
   let filename = A.getReplayFilename(replayName)
   return ReplaySystem[A](
     mode: Recorder, replayStream: newFileStream(filename, fmAppend), actions: actions
   )
 
 proc initInputSystem*[A](actions: Actions[A]): ReplaySystem[A] =
+  ## Creates a replay system that only runs live input, without recording or playback.
   ReplaySystem[A](mode: InputOnly, actions: actions)
 
 proc `==`*[A](r1, r2: ReplaySystem[A]): bool =
@@ -86,14 +92,15 @@ proc writeFile[A](rs: var ReplaySystem[A]) =
   let replayBufBytes = toFlatty(rs.buf)
   rs.replayStream.write(replayBufBytes)
 
-proc recordActionAndFlushToFile[A](
+proc recordActionAndFlushToFile*[A](
     rs: var ReplaySystem[A], action: sink RecordedAction[A]
 ) =
   rs.buf.push action
   if rs.buf.i == 0:
     rs.writeFile()
 
-proc cleanup*[A](rs: var ReplaySystem[A]) =
+proc deinit*[A](rs: var ReplaySystem[A]) =
+  ## Flushes any buffered recorded actions to disk (when recording) and closes the file.
   if rs.mode == Recorder and rs != ReplaySystem[A].default and rs.buf.i != 0:
     rs.writeFile()
   rs.replayStream.close()
@@ -143,15 +150,20 @@ proc run[A: enum](actions: Actions[A], actionName: A, i: ActionInputs): bool =
   actions[actionName].run(i)
 
 proc initBoolAction*(fn: BoolActionFn, runOnlyWhenNonZero = true): Action =
+  ## Wraps a bool callback as an Action (e.g. a key press). By default it only runs when
+  ## the input is non-default, so unpressed keys don't fire.
   Action(kind: BoolAction, boolFn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
 proc initFloatAction*(fn: FloatActionFn, runOnlyWhenNonZero = true): Action =
+  ## Wraps a float callback as an Action.
   Action(kind: FloatAction, floatFn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
 proc initVector2Action*(fn: Vec2ActionFn, runOnlyWhenNonZero = true): Action =
+  ## Wraps a Vec2f callback as an Action (e.g. mouse movement).
   Action(kind: Vector2Action, vec2Fn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
 proc initMonoTimeAction*(fn: MonoTimeActionFn, runOnlyWhenNonZero = true): Action =
+  ## Wraps a MonoTime callback as an Action.
   Action(kind: MonoTimeAction, monoTimeFn: fn, runOnlyWhenNonZero: runOnlyWhenNonZero)
 
 type InputsToActions*[A: enum, I] = Table[I, A]
@@ -164,6 +176,8 @@ proc addRecordingInputReader*[A, I: enum, T](
     deltaTime: float,
     recordingEnabled: bool,
 ) =
+  ## Reads each mapped input via `reader`, runs its action, and (when recording) records the
+  ## actions that actually fired so they can be replayed for this tick.
   for inputName, actionName in inputsToActions.pairs:
     if actionName in rs.actions:
       let input = reader(inputName).wrapInput()
@@ -180,6 +194,8 @@ proc recordFrameData*[A, T](
     data: T,
     recordingEnabled: bool,
 ) =
+  ## Records one piece of per-frame data (e.g. delta/mono time) for a tick so playback
+  ## reproduces the same timing. No-op when recording is disabled.
   if recordingEnabled:
     let input = wrapInput(data)
     rs.recordActionAndFlushToFile RecordedAction[A](
@@ -187,15 +203,21 @@ proc recordFrameData*[A, T](
     )
 
 proc initReplayPlayer*[A](replayName: string, actions: Actions[A]): ReplaySystem[A] =
+  ## Opens a recorded replay file for playback, asserting the file exists.
   let filename = A.getReplayFilename(replayName)
   result = ReplaySystem[A](
     mode: Player, replayStream: newFileStream(filename, fmRead), actions: actions
   )
   doAssert not result.replayStream.isNil, fmt"Could not open replay file: {filename}"
 
-proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
-  result = true
-    # This function returns true while the replay is being played back and false when the replay has ended
+type ReplayPlaybackResult*[A: enum] = object
+  replayEnded*: bool
+  playedActions*: seq[RecordedAction[A]]
+
+proc play*[A: enum](rs: var ReplaySystem[A], tickN: uint64): ReplayPlaybackResult[A] =
+  ## Plays back all recorded actions for the given tick, refilling the buffer from the file
+  ## as needed. Returns whether the replay is playing or not and which action was executed.
+  result.replayEnded = false
 
   var i = max(0, rs.lastPlayedI + 1)
     # Skip past actions that were already played during previous ticks 
@@ -207,7 +229,8 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
     # Make sure the buffer is filled with new data when needed
     if newBufferNeeded:
       if rs.replayStream.atEnd():
-        return false # End of buffer
+        result.replayEnded = true # End of buffer
+        return
       # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
       let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
       rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
@@ -217,12 +240,14 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
     # Read and play back action from replay
     let recordedAction = rs.buf.data[i]
     if recordedAction == RecordedAction[A].default:
-      return false # End of buffer
+      result.replayEnded = true # End of buffer
+      return
     elif recordedAction.tickN > tickN:
       break # Buffer data is newer than current tick
     elif recordedAction.tickN == tickN:
       # Execute action for current tick
-      discard rs.actions[recordedAction.actionName].run(recordedAction.inputs)
+      if rs.actions[recordedAction.actionName].run(recordedAction.inputs):
+        result.playedActions.add recordedAction
 
     rs.lastPlayedI = i
     i += 1
@@ -233,13 +258,22 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): bool =
 type StateStorage* = object
   stateFilename: string
 
-proc initStateStorage*[S: object](replayName: string): StateStorage =
-  StateStorage(stateFilename: S.getReplayFilename(replayName))
+proc getDataBlobFilename*[O: object](
+    storableObjectName: typedesc[O], dataBlobName: string
+): string =
+  ## Builds the on-disk file name for a serialized state object, namespaced by its type.
+  fmt"{dataBlobName}.{$storableObjectName}.bin"
+
+proc initStateStorage*[S: object](dataBlobName: string): StateStorage =
+  ## Creates a state storage handle for saving/loading an object of type S to/from disk.
+  StateStorage(stateFilename: S.getDataBlobFilename(dataBlobName))
 
 proc saveState*[S: object](ss: StateStorage, so: S) =
+  ## Serializes an object with flatty and writes it to the storage's file.
   let stateFileBytes = toFlatty(so)
   writeFile(ss.stateFilename, stateFileBytes)
 
 proc loadState*[S: object](ss: StateStorage, stateObjectT: typedesc[S]): S =
+  ## Reads and deserializes an object of type S from the storage's file.
   let stateFileBytes = readFile(ss.stateFilename)
   return stateFileBytes.fromFlatty(S)

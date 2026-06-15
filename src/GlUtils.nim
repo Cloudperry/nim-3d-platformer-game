@@ -1,10 +1,10 @@
 import std/[tables, strformat, strutils, options, sequtils, bitops, sugar, macros, math]
 import pkg/glm
 import ./glad/gl
-import Logger
 
 # ======================================== Shader class and compilation error handling ========================================
 proc checkErrorAndRaise*(shader: GLuint) =
+  ## Raises with the shader's info log if it failed to compile.
   var code: GLint
   glGetShaderiv(shader, GL_COMPILE_STATUS, addr code)
   if code.GLboolean == GL_FALSE.GLboolean:
@@ -15,6 +15,7 @@ proc checkErrorAndRaise*(shader: GLuint) =
     raise newException(Exception, errLog)
 
 proc checkLinkErrorAndRaise*(program: GLuint) =
+  ## Raises with the program's info log if it failed to link.
   var code: GLint
   glGetProgramiv(program, GL_LINK_STATUS, addr code)
   if code.GLboolean == GL_FALSE.GLboolean:
@@ -58,10 +59,12 @@ converter toCstringArray(s: string): cstringArray {.inline.} =
 converter toIndexBuffer*(indices: seq[int]): seq[GLuint] =
   indices.mapIt(it.GLuint)
 
-type ShaderRef* = ref object
+type ShaderRef* = ref object ## A handle to a linked OpenGL shader program.
   id*: GLuint
 
 proc initShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
+  ## Compiles the given vertex and fragment GLSL sources, links them into a program and
+  ## raises on any compile/link error.
   result = new ShaderRef
 
   # Compile shaders
@@ -111,6 +114,7 @@ proc initBinShaderProg*(vertexSrc: string, fragmentSrc: string): ShaderRef =
   glDeleteShader(fragmentShader)
 
 proc use*(s: ShaderRef) =
+  ## Binds this shader program as the active one.
   glUseProgram(s.id)
 
 template withShader*(s: ShaderRef, body: untyped) =
@@ -118,12 +122,12 @@ template withShader*(s: ShaderRef, body: untyped) =
   body
   glUseProgram(0)
 
-proc cleanup*(s: var ShaderRef) =
+proc deinit*(s: var ShaderRef) =
   glDeleteProgram(s.id)
   s = nil
 
 proc `=dispose`*(s: var ShaderRef) =
-  s.cleanup()
+  s.deinit()
 
 # ======================================== Automatic GPU buffer alignment generator ========================================
 const std140Alignment* = collect:
@@ -213,6 +217,9 @@ macro makeGlObjects*(
     alignTable: static Table[string, int] = dontAlignByType,
     body: typed,
 ): untyped =
+  ## Inserts `{.align.}` pragmas on the fields of the object types in `body` so their memory
+  ## layout matches std140 and they can be uploaded straight into uniform buffers.
+  ## `unknownAlignment` controls the behaviour for types with no known alignment.
   for n in body:
     if n.kind == nnkTypeSection:
       for typeDef in n:
@@ -348,6 +355,8 @@ macro makeSsbo*(body: typed): untyped =
 
 # ======================================== UBO/SSBO class ========================================
 type ShaderDataBufferRef*[T: object | seq[object]] = ref object
+  ## A UBO or SSBO wrapper holding a CPU-side copy of its data (`data`) and the GPU buffer.
+  ## Edit the data through the field helpers, then upload it to the GPU.
   id*: GLuint
   shaderSlots: Table[GLuint, int]
   bufferType, usageHint: GLenum
@@ -381,6 +390,8 @@ proc initShaderDataBuffer*[T](
     bufferType, usageHint: GLenum,
     data: Option[T] = T.none,
 ): ShaderDataBufferRef[T] =
+  ## Creates a UBO/SSBO of type T, binds it to the given shader binding slot and optionally
+  ## uploads initial data. Raises if the buffer type or usage hint is unsupported.
   validateEnumsOrRaise(bufferType, usageHint)
 
   result = new ShaderDataBufferRef[T]
@@ -406,6 +417,7 @@ proc glBind[T](b: ShaderDataBufferRef[T]) =
   glBindBuffer(b.bufferType, b.id)
 
 proc use*[T](b: ShaderDataBufferRef[T], shader: ShaderRef) =
+  ## Binds the buffer to the binding slot it was registered with for the given shader.
   b.glBind()
   let slot = b.shaderSlots[shader.id]
   glBindBufferBase(b.bufferType, slot, b.id)
@@ -416,6 +428,8 @@ proc upload*[T](
     bufferType, usageHint: Option[GLenum] = GLenum.none,
     allocExtraBytes = 0,
 ) =
+  ## (Re)allocates and uploads the whole CPU-side buffer to the GPU. For seq buffers it
+  ## uploads all elements; for plain objects it uploads the object's bytes.
   s.glBind()
   let bufferType = if bufferType.isSome: bufferType.get else: s.bufferType
   let usageHint = if usageHint.isSome: usageHint.get else: s.usageHint
@@ -436,6 +450,8 @@ proc uploadRegion*[T](
   glBufferSubData(b.bufferType, offset, size, regionStartPtr)
 
 template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
+  ## Uploads just one field of the buffer's data to the GPU, growing the GPU allocation if
+  ## a seq field no longer fits.
   when b.data.field is seq:
     let seqSize = b.data.field.len * sizeof(b.data.field[0])
     if sizeof(T) + seqSize > b.currentAllocatedSize:
@@ -445,6 +461,7 @@ template uploadField*[T](b: ShaderDataBufferRef[T], field: untyped) =
     b.uploadRegion(T.offsetOf(field), sizeof b.data.field, addr b.data.field)
 
 template setField*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) =
+  ## Sets a field of the buffer's data and immediately uploads just that field to the GPU.
   b.data.field = value
   b.uploadField(field)
 
@@ -453,17 +470,18 @@ template `.=`*[T](b: ShaderDataBufferRef[T], field: untyped, value: typed) =
   b.setField(field, value)
 
 proc add*[T1, T2](b: var ShaderDataBufferRef[T1], value: T2) =
+  ## Appends a value to a seq-backed UBO/SSBO's CPU-side data (not valid for object buffers).
   when T1 is object:
     {.fatal: "This proc is only meant for seq UBOs/SSBOs.".}
   else:
     b.data[].add value
 
-proc cleanup*(s: var ShaderDataBufferRef) =
+proc deinit*(s: var ShaderDataBufferRef) =
   glDeleteBuffers(1, addr s.id)
   s = nil
 
 proc `=dispose`*(s: var ShaderDataBufferRef) =
-  s.cleanup()
+  s.deinit()
 
 # ======================================== VBO class ========================================
 type
@@ -473,6 +491,8 @@ type
 
   # TODO: Add partial uploads/updates for VBO
   VertexBufferRef*[T: object] = ref object
+    ## A vertex buffer (VBO) for vertices of type T. The per-field vertex attribute layout
+    ## is derived automatically from T's fields.
     id*: GLuint
     bufferType: GLenum
     data: seq[T] # Should probably be ref to avoid copying large buffers?
@@ -484,6 +504,7 @@ proc glBind*[T: object](b: VertexBufferRef[T]) =
   glBindBuffer(GL_ARRAY_BUFFER, b.id)
 
 proc upload*[T: object](b: var VertexBufferRef[T], data: seq[T], bufferType: GLenum) =
+  ## Uploads vertex data to the GPU, raising if the data is empty.
   b.glBind()
   if data.len > 0:
     b.data = data
@@ -498,6 +519,9 @@ proc initVertexBuffer*[T: object](
     treatInvalidTypesAsPadding: bool = false,
     fieldOverrides: Option[Table[string, GLenum]] = Table[string, GLenum].none,
 ): VertexBufferRef[T] =
+  ## Creates a vertex buffer, deriving its attribute layout from T's fields (Nim/glm types
+  ## mapped to GL attribute types). Unknown field types raise unless treated as padding or
+  ## overridden via `fieldOverrides`.
   result = new VertexBufferRef[T]
 
   glGenBuffers(1, addr result.id)
@@ -559,6 +583,7 @@ const GlFloatTypes =
 const GlDoubleTypes = [cGL_DOUBLE, GL_DOUBLE_VEC2, GL_DOUBLE_VEC3, GL_DOUBLE_VEC4]
 
 proc use*[T](b: VertexBufferRef[T]) =
+  ## Binds the VBO and sets up its vertex attribute pointers in the current VAO.
   b.glBind()
 
   var offset = 0
@@ -580,16 +605,17 @@ proc use*[T](b: VertexBufferRef[T]) =
   glBindVertexBuffer(b.slot, b.id, 0, offset)
   glBindBuffer(GL_ARRAY_BUFFER, 0) # VBO can be unbound as its now part of the VAO
 
-proc cleanup*[T](b: var VertexBufferRef[T]) =
+proc deinit*[T](b: var VertexBufferRef[T]) =
   glDeleteBuffers(1, addr b.id)
   b = nil
 
 proc `=dispose`*[T](b: var VertexBufferRef[T]) =
-  b.cleanup()
+  b.deinit()
 
 type
   InitEBuf* = tuple[data: seq[GLuint], bufType: GLenum]
   ElementBufferRef* = ref object
+    ## An index/element buffer (EBO) holding the triangle indices for a mesh.
     id*: GLuint
     indices: seq[GLuint]
 
@@ -597,6 +623,7 @@ proc glBind*(b: ElementBufferRef) =
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.id)
 
 proc upload*(b: var ElementBufferRef, indices: seq[GLuint], bufferType: GLenum) =
+  ## Uploads the index data to the GPU.
   b.glBind()
   b.indices = indices
   glBufferData(
@@ -606,6 +633,7 @@ proc upload*(b: var ElementBufferRef, indices: seq[GLuint], bufferType: GLenum) 
 proc initElementBuffer*(
     initBufOpt: Option[InitEBuf] = InitEBuf.none
 ): ElementBufferRef =
+  ## Creates an element buffer, optionally uploading initial index data.
   result = new ElementBufferRef
   glGenBuffers(1, addr result.id)
 
@@ -613,28 +641,31 @@ proc initElementBuffer*(
     let initBuf = initBufOpt.get
     result.upload(initBuf.data, initBuf.bufType)
 
-proc cleanup*(b: var ElementBufferRef) =
+proc deinit*(b: var ElementBufferRef) =
   glDeleteBuffers(1, addr b.id)
   b = nil
 
 proc `=dispose`*(b: var ElementBufferRef) =
-  b.cleanup()
+  b.deinit()
 
 # ======================================== VAO class ========================================
 type VertexArrayRef* = ref object
+  ## A vertex array object (VAO) that captures the vertex attribute setup and an attached
+  ## element buffer so a mesh can be drawn by just binding it.
   id*: GLuint
   attachedElementBuffer: ElementBufferRef
 
 proc initVertexArray*(): VertexArrayRef =
+  ## Creates a new, empty vertex array object.
   result = new VertexArrayRef
   glGenVertexArrays(1, addr result.id)
 
-proc cleanup*(a: var VertexArrayRef) =
+proc deinit*(a: var VertexArrayRef) =
   glDeleteVertexArrays(1, addr a.id)
   a = nil
 
 proc `=dispose`*(a: var VertexArrayRef) =
-  a.cleanup()
+  a.deinit()
 
 proc isActive*(a: VertexArrayRef): bool =
   var currentVertexArrayIdStore: GLint
@@ -642,6 +673,7 @@ proc isActive*(a: VertexArrayRef): bool =
   return a.id == cast[GLuint](currentVertexArrayIdStore)
 
 proc attachElementBuffer*(a: var VertexArrayRef, b: ElementBufferRef) =
+  ## Attaches an element buffer to the VAO, binding it immediately if the VAO is active.
   a.attachedElementBuffer = b
   if a.isActive():
     b.glBind()
@@ -650,6 +682,7 @@ proc glBind(a: VertexArrayRef) =
   glBindVertexArray(a.id)
 
 proc use*(a: VertexArrayRef) =
+  ## Binds the VAO (and its attached element buffer) for drawing.
   a.glBind()
   if a.attachedElementBuffer != nil:
     a.attachedElementBuffer.glBind()
@@ -736,6 +769,8 @@ proc glDebugOutput(
   logger ""
 
 proc setupGlDebugLogging*() =
+  ## Enables synchronous OpenGL debug message logging through the configured logger proc.
+  ## Requires a debug OpenGL context; raises otherwise.
   var flags: GLint
   glGetIntegerv(GL_CONTEXT_FLAGS, addr flags)
   if bitand(flags, GL_CONTEXT_FLAG_DEBUG_BIT.GLint) != 0:

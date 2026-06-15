@@ -1,0 +1,5 @@
+# Tekoälyn käyttö projektissa
+- Olen käyttänyt projektin aikana jonkun verran Claude Opus 4.8, GPT 5.5 ja GPT 5.3 Codex -kielimalleja Github Copilot CLI:ssä. Lisäksi käytin Claude Sonnet 4.6 claude.ai sivulla. 
+- Käytin tekoälyä projektin suunnitteluun, grafiikkakirjastojen opettelemiseen ja bugien löytämiseen koodista. En kuitenkaan korjannut bugeja teköälyllä.
+- Käytin tekoälyä myös koodin generointiin, mutta vain scripts kansion skripteihin ja moduuliin src/SceneBuilder.nim. Muuten kaikki koodi on itse kirjoitettua. Koodissa on kuitenkin jonkun verran tekoälyn tuottamia kommentteja, jotka perustuvat git committeihin ja omiin muistiinpanoihin.
+- Projektin dokumentaatiota tehdessä käytin tekoälyä markdown tiedostojen luomiseen, joissa on oikea rakenne ja otsikot valmiina. Taulukot ohje.md:ssä ovat myös tekoälyn tuottamia. Tekoälyn tuottamaa tekstisisältöä on vain testausdokumentissa ja ohje.md:n taulukoiden ohessa.

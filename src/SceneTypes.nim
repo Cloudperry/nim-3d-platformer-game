@@ -1,11 +1,12 @@
-import std/[strformat, options, lenientops, monotimes, intsets]
+import std/[strformat, options, monotimes, intsets]
 import std/times except `getTime`
 import ./glad/gl
 import pkg/glm
-import ./[GlUtils, Logger]
+import ./[GlUtils]
 
 const degToRad* = PI / 180
 type
+  ## Position, scale and (Euler angle) rotation of an object in world space.
   Transform* = object
     pos*: Vec3f
     scale*: Vec3f = vec3f(1.0, 1.0, 1.0)
@@ -15,6 +16,7 @@ type
     Orthographic
     Perspective
 
+  ## Per-player camera tuning, mostly mouse sensitivity and movement speed.
   FpCameraOptions* = object
     # Pitch/yaw scaling to match Source engine. In this engine,
     # transforms use radian rotations so Source engine constants need to be scaled.
@@ -24,6 +26,8 @@ type
     moveSpeed*: float = 9
     # TODO: Focal length sensitivity scaling for intuitive feeling sensitivity while scoping/changing FOV
 
+  ## Camera state: orientation (yaw/pitch + cached basis vectors), view/projection matrices
+  ## and the projection-specific parameters (ortho frustum or perspective FOV).
   CameraData* = object
     # Positive yaw means turning left and positive pitch means turning up
     yaw*: GLfloat = 0 # Start the camera looking forward (toward -Z)
@@ -39,6 +43,7 @@ type
     of Perspective:
       verticalFov*: GLfloat
 
+  ## A renderable mesh: a vertex list with optional indices and its own transform.
   Model*[T] = object
     transform*: Transform
     vertices*: seq[T]
@@ -49,7 +54,25 @@ type
     direction*: Vec3f # This should always be normalized
     color*: Vec3f
 
+proc `==`*(c1, c2: CameraData): bool =
+  let sharedFieldsMatch =
+    c1.yaw == c2.yaw and c1.pitch == c2.pitch and c1.viewMat == c2.viewMat and
+    c1.projectionMat == c2.projectionMat and c1.aspectRatio == c2.aspectRatio and
+    c1.nearClip == c2.nearClip and c1.farClip == c2.farClip and c1.forward == c2.forward and
+    c1.right == c2.right and c1.up == c2.up
+
+  let caseFieldsMatch =
+    case c1.kind
+    of Orthographic:
+      c2.kind == Orthographic and c1.frustumLength == c2.frustumLength
+    of Perspective:
+      c2.kind == Perspective and c1.verticalFov == c2.verticalFov
+
+  return sharedFieldsMatch and caseFieldsMatch
+
 makeGlObjects(RaiseError, std140Alignment):
+  ## A point light with position, color and attenuation terms. Laid out for std140 so it
+  ## can be stored inside a GPU buffer array.
   type PointLight* = object
     position*: Vec3f
     color*: Vec3f
@@ -59,6 +82,7 @@ makeGlObjects(RaiseError, std140Alignment):
     # Point lights should have a max range as well (or alternatively a minimum intensity for the light to be considered visible)
 
 type
+  ## The whole game world: renderable models, the entity list, collider indices and lighting.
   Scene*[T] = object
     models*: seq[Model[T]]
     entities*: seq[Entity]
@@ -67,7 +91,6 @@ type
     colliderIds*: seq[int]
     dirLight*: DirectionalLight
     ambientLightColor*: Vec3f
-    pointLights*: ShaderDataBufferRef[seq[PointLight]]
 
   EntityId* = object
     id*: int
@@ -81,6 +104,8 @@ type
     BoxCollider
     PlayerController
 
+  ## A scene object. Its `kind` decides which optional component fields (player, camera,
+  ## box collider) are present; use the safe accessors below to read them.
   Entity* = object
     kind*: EntityKind
     t*: Transform
@@ -100,8 +125,9 @@ type
 
   BoxColliderData* = object
     halfExtents*: Vec3f
-    tags*: set[ColliderTags] = {LevelGeo}
+    tags*: seq[ColliderTags]
 
+  ## Result of resolving collisions: the accumulated push-out vector and the colliders hit.
   CollisionResult* = object
     pushVec*: Vec3f
     colliderIds*: seq[int]
@@ -110,6 +136,8 @@ type
     Flying
     Walking
 
+  ## Player movement/physics state: mode, velocity, input direction and the timing/collider
+  ## bookkeeping for coyote time, jumping and wall jumping.
   PlayerData* = object
     mode*: MovementMode
     cameraOpts*: FpCameraOptions
@@ -121,6 +149,7 @@ type
     moveDirection*: Vec3f
     turnVec*: Vec2f
 
+  ## Per-frame timing passed to the simulation: the delta time and a monotonic timestamp.
   FrameState* = object
     deltaTime*: float
     monoTime*: MonoTime
@@ -128,6 +157,8 @@ type
 template addSafeComponentAccessors(
     fieldName: untyped, hiddenFieldName: untyped, allowedKinds: set[EntityKind]
 ): untyped =
+  ## Generates getter/setter templates for an optional component field that assert the entity
+  ## is an allowed kind and has the component before unwrapping it.
   template fieldName*(e: Entity): untyped =
     assert e.kind in allowedKinds and e.hiddenFieldName.isSome,
       "Entity of type " & $e.kind & " doesn't have the field " &

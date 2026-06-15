@@ -1,14 +1,10 @@
-import
-  std/[
-    os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
-  ]
+import std/[os, strformat, options, math, monotimes, importutils, tables, times]
 import std/times except `getTime`
-import pkg/[glm, glfw, confutils, flatty]
+import pkg/[glm, glfw, confutils]
 from pkg/glfw/wrapper import `rawMouseMotionSupported`
 import
   ./[
-    GlUtils, Slangc, Logger, Shapes, SceneLogic, PlayerController, CameraController,
-    Math, Input, TestScenes, Containers, GameLogic,
+    GlUtils, Slangc, Logger, SceneLogic, CameraController, Input, TestScenes, GameLogic
   ]
 import ./glad/gl
 
@@ -34,12 +30,13 @@ type
     vertexShaderText, fragmentShaderText: string
     shader: ShaderRef
     uniforms: ShaderDataBufferRef[GpuSceneUniforms]
+    pointLights: ShaderDataBufferRef[seq[PointLight]]
     vertexBuffers: seq[VertexBufferRef[ColoredVertex]]
     elementBuffers: seq[ElementBufferRef]
     vertexArrays: seq[VertexArrayRef]
 
 const
-  shadersDir = currentSourcePath().parentDir().parentDir() / "shaders"
+  shadersDir = "shaders"
   buttonActions: InputsToActions[ActionNames, Key] = {
     keyComma: MoveFwd,
     keyW: MoveFwd,
@@ -84,7 +81,7 @@ proc setSceneUniforms[T](s: Scene[T]) =
   state.uniforms.mainLightColor = s.dirLight.color
   state.uniforms.ambientLightColor = s.ambientLightColor
 
-proc initGame(win: Window) =
+proc init(win: Window) =
   let monitorSize = (state.monitor.workArea.w, state.monitor.workArea.h)
   state.fullscreen = win.size == monitorSize
 
@@ -100,14 +97,14 @@ proc initGame(win: Window) =
     state.shader, 0, GL_UNIFORM_BUFFER, GL_DYNAMIC_DRAW
   )
 
-  # Set up OpenGL buffers for passing vertex data to shaders
+  # Set up OpenGL buffers for passing data to shaders
   game.scene.setSceneUniforms()
   game.scene.makeGlBuffers()
-  game.scene.pointLights = initShaderDataBuffer[seq[PointLight]](
+  state.pointLights = initShaderDataBuffer[seq[PointLight]](
     state.shader, 1, GL_SHADER_STORAGE_BUFFER, GL_DYNAMIC_DRAW
   )
-  game.scene.loadTestSceneLights()
-  game.scene.pointLights.upload()
+  state.pointLights.loadTestSceneLights()
+  state.pointLights.upload()
 
   # Enable backface culling
   glEnable(GL_CULL_FACE)
@@ -126,7 +123,7 @@ proc getAxis(win: Window, a: AxisInputs): Vec2f =
     (state.prevCursorX, state.prevCursorY) = win.cursorPos
 
 proc update(win: Window) =
-  game.preUpdate()
+  discard game.preUpdate()
 
   if game.conf.replayName.len == 0:
     # Mouse input
@@ -151,15 +148,15 @@ proc update(win: Window) =
 
   game.update()
 
-proc uninit() =
+proc deinit() =
   for i in 0 .. state.vertexArrays.high:
-    state.vertexBuffers[i].cleanup()
-    state.elementBuffers[i].cleanup()
-    state.vertexArrays[i].cleanup()
-  state.uniforms.cleanup()
-  state.shader.cleanup()
+    state.vertexBuffers[i].deinit()
+    state.elementBuffers[i].deinit()
+    state.vertexArrays[i].deinit()
+  state.uniforms.deinit()
+  state.shader.deinit()
 
-  game.replaySystem.cleanup()
+  game.deinit()
 
 proc setUniforms(m: Model) =
   state.uniforms.modelToWorldMat = m.transform.getTransformMat()
@@ -239,22 +236,23 @@ proc positionCb(win: Window, pos: tuple[x, y: int32]) =
     # Linux Wayland sometimes gave nil monitors for win.monitor, check that its not nil
     state.monitor = newMonitor
 
-proc compileShaders(slangBinPath = "") =
-  # TODO: Fields are set using setter procs here to make sure the output file field gets updated. Make the API
-  # in Slangc better by adding init proc.
-  var opts = SlangcOptions(
-    target: Glsl,
-    entryPoint: "vertexMain",
-    stage: Vertex,
-    inFile: shadersDir / "RasterizedRenderer.slang",
-  )
-  if slangBinPath.len > 0:
-    opts.slangPath = slangBinPath
-  state.vertexShaderText = compileShaderOrRaise(opts)
+const isDebugBuild = not (defined(release) or defined(danger))
 
-  opts.stage = Fragment
-  opts.entryPoint = "fragmentMain"
-  state.fragmentShaderText = compileShaderOrRaise(opts)
+proc loadShader(o: SlangcOptions): string =
+  let filename = o.getOutputFilename()
+  return readFile(filename)
+
+proc loadShaders(slangBinPath = "") =
+  let inFile = shadersDir / "RasterizedRenderer.slang"
+  let vertOpts = initSlangcOptions(inFile, Vertex)
+  let fragOpts = initSlangcOptions(inFile, Fragment)
+
+  when isDebugBuild:
+    state.vertexShaderText = compileShaderOrRaise(vertOpts, slangBinPath)
+    state.fragmentShaderText = compileShaderOrRaise(fragOpts, slangBinPath)
+  else:
+    state.vertexShaderText = loadShader(vertOpts)
+    state.fragmentShaderText = loadShader(fragOpts)
 
 proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   # GLFW window and OpenGL context init
@@ -266,7 +264,7 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
   cfg.version = glv46
   cfg.forwardCompat = true
   cfg.profile = opCoreProfile
-  cfg.debugContext = not (defined(release) or defined(danger))
+  cfg.debugContext = isDebugBuild
   cfg.bits.depth = 24.some
 
   # GLFW init that has to be done after window creation
@@ -295,15 +293,19 @@ proc initGlfwAndGlad(): tuple[win: Window, cfg: OpenglWindowConfig] =
     globalLogger.log "Raw mouse motion not supported. Camera rotation speed will be dependent on desktop mouse settings."
 
   # TODO: Allow running faster than VSync when playing higher than monitor refresh rate replays
-  glfw.swapInterval(1)
+  glfw.swapInterval(game.conf.swapInterval)
   return (win, cfg)
+
+const maxDeltaTime = 1.0 / 30.0 # Delta time for 30 FPS
 
 proc main() =
   game = initGameState()
-  compileShaders(game.conf.slangBinPath)
+  loadShaders(game.conf.slangBinPath)
+  if game.conf.compileShadersAndQuit:
+    quit()
 
   var (win, cfg) = initGlfwAndGlad()
-  win.initGame()
+  win.init()
 
   var prevFrameStart = getMonoTime()
   while not win.shouldClose:
@@ -311,6 +313,8 @@ proc main() =
     let frameDuration = currFrameStart - prevFrameStart
     game.frame.deltaTime =
       frameDuration.inNanoseconds() / initDuration(seconds = 1).inNanoseconds()
+    # Clamp deltaTime to being less than maxDeltaTime to prevent the simulation from taking too large steps
+    game.frame.deltaTime = min(maxDeltaTime, game.frame.deltaTime)
     game.frame.monoTime = currFrameStart
     prevFrameStart = currFrameStart
 
@@ -327,7 +331,7 @@ proc main() =
     )
 
     glfw.pollEvents()
-  uninit()
+  deinit()
   glfw.terminate()
 
 main()

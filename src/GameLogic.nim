@@ -1,22 +1,11 @@
-import
-  std/[
-    os, strformat, options, math, monotimes, sequtils, importutils, sugar, tables, times
-  ]
-import std/times except `getTime`
-import pkg/[glm, confutils, flatty]
-import
-  ./[
-    GlUtils, Shapes, SceneLogic, PlayerController, CameraController, Input, TestScenes,
-    Containers,
-  ]
+import std/[os, options, math, monotimes, tables, times]
+import pkg/[glm, confutils]
+import ./[SceneLogic, Input, TestScenes]
 
 type
-  Config = object
-    slangBinPath* {.
-      name: "slangBinPath",
-      defaultValue: "/opt/shader-slang-bin/bin",
-      desc: "Slang shader compiler path"
-    .}: string
+  ## All configurable game/renderer settings. Parsed from the command line via confutils
+  ## and serialized alongside replays so playback uses the same settings as recording.
+  Config* = object # Game settings
     movementMode* {.
       name: "movementMode",
       defaultValue: Walking,
@@ -33,6 +22,22 @@ type
     replayName* {.
       name: "replayName", defaultValue: "", desc: "Replay name to play back"
     .}: string
+    # Renderer settings
+    slangBinPath* {.
+      name: "slangBinPath",
+      defaultValue: "",
+      desc: "Slang shader compiler binary path (leave empty to discover from PATH)"
+    .}: string
+    swapInterval* {.
+      name: "swapInterval",
+      defaultValue: 1,
+      desc: "Controls VSync (0 = VSync off, 1 = VSync on, 2 = half-rate VSync on)"
+    .}: int
+    compileShadersAndQuit* {.
+      name: "compileShadersAndQuit",
+      defaultValue: false,
+      desc: "Makes the renderer only compile shaders and then quit"
+    .}: bool
 
   ActionNames* = enum
     MoveFwd
@@ -45,6 +50,8 @@ type
     SetDeltaTime
     SetMonoTime
 
+  ## Top-level mutable game state: config, the active scene, the input/replay system and
+  ## per-frame bookkeeping. Passed around as a ref so updates are shared everywhere.
   GameStateRef* = ref object # Renderer state and wrapper objects
     conf*: Config
     confStorage*: StateStorage
@@ -56,9 +63,6 @@ type
     startTime*: DateTime
     playingReplay* = true
     frame*: FrameState
-    # TODO: Move these inside the player entity as these settings only affect how the player controller behaves
-    mouseSensitivity*: float
-    mode*: MovementMode
 
 const
   appDesc* = "Nim OpenGL FPS game"
@@ -78,6 +82,8 @@ template scene*(game: GameStateRef): untyped =
   game.scene
 
 proc makeActions*(game: GameStateRef): Actions[ActionNames] =
+  ## Builds the action table mapping each ActionName to a closure that mutates game state.
+  ## The same table is used for live input, recording and replay playback.
   return {
     MoveFwd: initBoolAction(
       proc(pressed: bool) =
@@ -119,25 +125,28 @@ proc makeActions*(game: GameStateRef): Actions[ActionNames] =
     ),
   }.toTable
 
-proc initGameState*(): GameStateRef =
+proc initGameState*(conf = none Config): GameStateRef =
+  ## Creates and initializes the game state: loads config (from the argument or command
+  ## line), sets up the replay system, loads the test scene and applies the player settings.
+  # Initialize game state and load config
   result = GameStateRef()
-  result.conf = Config.load(copyrightBanner = appDesc)
+  result.conf =
+    if conf.isSome:
+      conf.get
+    else:
+      Config.load(copyrightBanner = appDesc)
   result.startTime = now()
 
-  result.playerI = result.scene.loadTestScene()
-  result.player.mode = result.conf.movementMode
-  result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
-
+  # Initialize replay system and save/restore config when recording/playing a replay
   let date = result.startTime.format("yyyy-M-d-h-m-s")
   result.actions = result.makeActions()
-
   if result.conf.replayName.len > 0:
     result.replaySystem =
       initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
     result.confStorage = initStateStorage[Config](result.conf.replayName)
     let replayName = result.conf.replayName
+    # Restore config that was used when the replay was recorded
     result.conf = result.confStorage.loadState(Config)
-      # Restore config that was used when the replay was recorded
     result.conf.recordInputs = false
     result.conf.replayName = replayName
   elif result.conf.recordInputs:
@@ -147,7 +156,14 @@ proc initGameState*(): GameStateRef =
   else:
     result.replaySystem = initInputSystem[ActionNames](result.actions)
 
-proc preUpdate*(game: GameStateRef) =
+  # Load scene and set player settings from config
+  result.playerI = result.scene.loadTestScene()
+  result.player.mode = result.conf.movementMode
+  result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
+
+proc preUpdate*(game: GameStateRef): seq[RecordedAction[ActionNames]] =
+  ## Resets per-frame input, then records this frame's timing (when recording) or plays back
+  ## the next replay actions (when replaying). Run before reading input and before update().
   game.player.turnVec = vec2f(0)
   game.player.moveDirection = vec3f(0)
   if game.conf.replayName.len <= 0:
@@ -159,11 +175,17 @@ proc preUpdate*(game: GameStateRef) =
     )
   else:
     if game.playingReplay:
-      game.playingReplay = game.replaySystem.play(game.frameCount)
+      let playbackResult = game.replaySystem.play(game.frameCount)
+      game.playingReplay = not playbackResult.replayEnded
+      return playbackResult.playedActions
+
+  return @[]
 
 proc update*(game: var GameStateRef) =
+  ## Advances the simulation by one frame and increments the frame counter.
   game.scene.update(game.frame)
   game.frameCount += 1
 
-proc uninit(game: GameStateRef) =
-  game.replaySystem.cleanup()
+proc deinit*(game: GameStateRef) =
+  ## Releases game resources, flushing and closing the replay system.
+  game.replaySystem.deinit()
