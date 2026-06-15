@@ -92,7 +92,7 @@ proc writeFile[A](rs: var ReplaySystem[A]) =
   let replayBufBytes = toFlatty(rs.buf)
   rs.replayStream.write(replayBufBytes)
 
-proc recordActionAndFlushToFile[A](
+proc recordActionAndFlushToFile*[A](
     rs: var ReplaySystem[A], action: sink RecordedAction[A]
 ) =
   rs.buf.push action
@@ -210,13 +210,11 @@ proc initReplayPlayer*[A](replayName: string, actions: Actions[A]): ReplaySystem
   )
   doAssert not result.replayStream.isNil, fmt"Could not open replay file: {filename}"
 
-type ReplayPlaybackResult* = object
+type ReplayPlaybackResult*[A: enum] = object
   replayEnded*: bool
-  playedAction*: Option[Action]
+  playedActions*: seq[RecordedAction[A]]
 
-const resultReplayEnded = ReplayPlaybackResult(replayEnded: true)
-
-proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPLaybackResult =
+proc play*[A: enum](rs: var ReplaySystem[A], tickN: uint64): ReplayPlaybackResult[A] =
   ## Plays back all recorded actions for the given tick, refilling the buffer from the file
   ## as needed. Returns whether the replay is playing or not and which action was executed.
   result.replayEnded = false
@@ -231,7 +229,8 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPLaybackResult =
     # Make sure the buffer is filled with new data when needed
     if newBufferNeeded:
       if rs.replayStream.atEnd():
-        return resultReplayEnded # End of buffer
+        result.replayEnded = true # End of buffer
+        return
       # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
       let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
       rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
@@ -241,14 +240,14 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPLaybackResult =
     # Read and play back action from replay
     let recordedAction = rs.buf.data[i]
     if recordedAction == RecordedAction[A].default:
-      return resultReplayEnded # End of buffer
+      result.replayEnded = true # End of buffer
+      return
     elif recordedAction.tickN > tickN:
       break # Buffer data is newer than current tick
     elif recordedAction.tickN == tickN:
       # Execute action for current tick
-      let action = rs.actions[recordedAction.actionName]
-      if action.run(recordedAction.inputs):
-        result.playedAction = some action
+      if rs.actions[recordedAction.actionName].run(recordedAction.inputs):
+        result.playedActions.add recordedAction
 
     rs.lastPlayedI = i
     i += 1

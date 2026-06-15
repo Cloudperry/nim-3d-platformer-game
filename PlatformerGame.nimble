@@ -20,4 +20,4 @@ requires "https://github.com/status-im/nim-unittest2"
 
 # Tasks
 task test, "Run the replay regression tests":
-  exec "nim c --hints:off -r tests/ReplayTests.nim"
+  exec "nim c --hints:off -r tests/AllTests.nim"
