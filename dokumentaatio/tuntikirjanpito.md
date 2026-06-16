@@ -60,4 +60,6 @@
 
 - 13.6.2026 4h Luotu skripti, joka pakkaa pelin ja kaiken olennaisen datan release buildia varten .tar.xz tiedostoon. Muutettu projektia niin, että pakattu release versio toimii suoraan Cubbli koneilla. Tätä varten piti mm. poistaa kovakoodattuja polkuja ja muuttaa shaderien latausta niin, että se ei vaadi Slang shader compileria.
 
-- 14.6.-15.6. 10h Korjattu Cubblia varten tehtyjen shader compilation muutosten aiheuttamia bugeja. Paranneltu release paketin luontia. Lisätty 3D ympäristöjen luontiin SceneBuilder kirjasto. Lisätty unittest2 testauskirjastoa käyttävä testi, joka ajaa kaikki replay järjestelmään pohjautuvat testit. Kirjotettu paljon dokumentaatiota.
+- 14.6.-15.6.2026 13h Korjattu Cubblia varten tehtyjen shader compilation muutosten aiheuttamia bugeja. Paranneltu release paketin luontia. Lisätty 3D ympäristöjen luontiin SceneBuilder kirjasto. Lisätty unittest2 testauskirjastoa käyttävä testi, joka ajaa kaikki replay järjestelmään pohjautuvat testit. Kirjotettu paljon dokumentaatiota. Valmisteltu replay järjestelmän yksikkötestausta varten ja tehty sotkuinen versio testistä. Testi toistaa ja tallentaa uusinnan uudelleen ja tarkistaa, että uudelleen tallennettu vastaa alkuperäistä. 
+
+- 16.6. 4h Korjattu aikaisemmin huomaamatta jäänyt replay järjestelmän bugi, joka tuli vastaan testauksessa. Lisätty kunnollinen replay järjestelmän testi, joka testaa saman asian yksinkertaisemmin. Päivitetty dokumentaatiota ja luotu uusi release build, joka sisältää uuden testin. 
