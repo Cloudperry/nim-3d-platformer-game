@@ -4,9 +4,9 @@ Peliä testataan tällä hetkellä lähinnä automaattisilla end-to-end -testeil
 
 ## Automaattinen testaus
 
-Testit on toteutettu tiedostossa [tests/ReplayTests.nim](../tests/ReplayTests.nim) ja varsinainen testauslogiikka on [src/Tester.nim](../src/Tester.nim) moduulissa.
+Pelisimulaation regressiotestit on toteutettu tiedostossa [tests/GameSimulationTests.nim](../tests/GameSimulationTests.nim) ja varsinainen testauslogiikka on [src/Tester.nim](../src/Tester.nim) moduulissa.  Uusintoihin perustuvat simulaation regressiotestit toimivat niin, että testidatasta luetaan pelin alkutila ja sen jälkeen peliä simuloidaan uusinnan avulla. Uusinnan loputtua pelin lopputilaa verrataan testidatassa tallennettuun tilaan. Näin testit varmistavat että pelin simulaatioon ei ole tehty muutoksia vahingossa ja, että simulaatio toimii joka kerta samalla tapaa samoilla syötteillä.
 
-Uusintoihin perustuvat testit toimivat niin, että testidatasta luetaan pelin alkutila ja sen jälkeen peliä simuloidaan uusinnan avulla. Uusinnan loputtua pelin lopputilaa verrataan testidatassa tallennettuun tilaan. Näin testit varmistavat että pelin simulaatioon ei ole tehty muutoksia vahingossa ja, että simulaatio toimii joka kerta samalla tapaa samoilla syötteillä.
+Lisäksi replay järjestelmää varten on yksikkötestin kaltainen testi tiedostossa [tests/ReplaySystemTests.nim](../tests/ReplaySystemTests.nim). Testi toistaa uusinnan ilman pelisimulaatiota ja tallentaa toistetun uusinnan uudestaan. Testi varmistaa, että uusintojen toistaminen ja tallentaminen toimii deterministisesti. Samalla testi varmistaa, että uusintojen toistaminen ja tallentaminen toimii.
 
 ### Mitä testataan
 
@@ -33,4 +33,4 @@ Seuraavat moduulit jäävät testaamatta, koska ne eivät kuulu pelin simulaatio
 
 ## Sovellukseen jääneet laatuongelmat
 
-Testit nojaavat tällä hetkellä käsin tallennettuihin uusintoihin, joten ne huomaavat vain regressiot olemassa olevissa pelitilanteissa. Varsinaista yksikkötestausta yksittäisille funktioille ja reunatapauksille (esim. törmäysten ratkaisun epäselvät tilanteet) ei vielä ole. Replay järjestelmää olisi hyvä testata jotenkin. Esim. toistamalla uusinta ja tallentamalla toiston aikana siitä taas uusinta. Tämän jälkeen voisi tarkistaa, että uusinnat ovat samat. 
+Testit nojaavat tällä hetkellä käsin tallennettuihin uusintoihin, joten ne huomaavat vain regressiot olemassa olevissa pelitilanteissa. Yksikkötestausta voisi olla enemmänkin. Tällä hetkellä vain replay järjestelmälle on yksikkötestejä, mutta esim. pelin fysiikkoja, pelaajan liikkumista ja kameraa varten ei ole yksikkötestejä. 

@@ -1,1 +1,1 @@
-import ./[ReplayTests, ReplayRerecordTests]
+import ./[ReplaySystemTests, GameSimulationTests]
