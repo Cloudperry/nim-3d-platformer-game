@@ -214,22 +214,7 @@ type ReplayPlaybackResult*[A: enum] = object
   replayEnded*: bool
   playedActions*: seq[RecordedAction[A]]
 
-proc readNewBuf*[A](rs: var ReplaySystem[A]): bool =
-  if rs.replayStream.atEnd():
-    return false
-  else:
-    # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
-    let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
-    rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
-    return true
-
-proc findLastActionI[A](rs: ReplaySystem[A]): int =
-  for i in countdown(rs.buf.data.high, 0):
-    let recordedAction = rs.buf.data[i]
-    if recordedAction != RecordedAction[A].default:
-      return i
-
-proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPlaybackResult[A] =
+proc play*[A: enum](rs: var ReplaySystem[A], tickN: uint64): ReplayPlaybackResult[A] =
   ## Plays back all recorded actions for the given tick, refilling the buffer from the file
   ## as needed. Returns whether the replay is playing or not and which action was executed.
   result.replayEnded = false
@@ -237,19 +222,20 @@ proc play*[A](rs: var ReplaySystem[A], tickN: uint64): ReplayPlaybackResult[A] =
   var i = max(0, rs.lastPlayedI + 1)
     # Skip past actions that were already played during previous ticks 
   while true:
-    let lastActionI = rs.findLastActionI()
-    let lastTickN = rs.buf.data[lastActionI].tickN
     let newBufferNeeded =
-      rs.buf == ReplayBuffer[A].default or tickN > lastTickN or
-      (tickN == lastTickN and rs.lastPlayedI >= lastActionI)
+      rs.buf == ReplayBuffer[A].default or tickN > rs.buf.data[replayBufSize - 1].tickN or
+      tickN == rs.buf.data[replayBufSize - 1].tickN and
+      rs.lastPlayedI >= rs.buf.data.high
     # Make sure the buffer is filled with new data when needed
     if newBufferNeeded:
-      if not rs.readNewBuf():
+      if rs.replayStream.atEnd():
         result.replayEnded = true # End of buffer
         return
-      else:
-        i = 0
-        rs.lastPlayedI = -1
+      # The size of flatty's serialized objects may not always match their size in memory, but in this case the sizes match
+      let replayBufBytes = rs.replayStream.readStr(sizeof ReplayBuffer[A])
+      rs.buf = replayBufBytes.fromFlatty(ReplayBuffer[A])
+      i = 0
+      rs.lastPlayedI = -1
 
     # Read and play back action from replay
     let recordedAction = rs.buf.data[i]
