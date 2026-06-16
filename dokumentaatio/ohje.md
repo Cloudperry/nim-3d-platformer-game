@@ -3,7 +3,7 @@
 1. Lataa pelin pakattu release etsimällä [täältä](https://github.com/Cloudperry/nim-3d-platformer-game/releases) uusimman version .tar.xz tiedosto
 2. Pura release komennolla `archive="<release name>.tar.xz" && tar -xJf "$archive" && cd "${archive%.tar.xz}"` tai haluamallasi graafisella työkalulla
 3. Pelin voi suorittaa komennolla `./platformer-game` terminaalissa, jonka työkansio on purettu release versio
-4. Testit voi suorittaa komennolla `./tests/platformer-game-replay-tests`
+4. Testit voi suorittaa komennolla `./platformer-game-tests`
 
 # Pelin kontrollit
 

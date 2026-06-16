@@ -163,7 +163,7 @@ proc initGameState*(conf = none Config): GameStateRef =
   result.player.mode = result.conf.movementMode
   result.player.cameraOpts.sensitivity = result.conf.mouseSensitivity
 
-proc preUpdate*(game: GameStateRef): Option[Action] =
+proc preUpdate*(game: GameStateRef): seq[RecordedAction[ActionNames]] =
   ## Resets per-frame input, then records this frame's timing (when recording) or plays back
   ## the next replay actions (when replaying). Run before reading input and before update().
   game.player.turnVec = vec2f(0)
@@ -179,7 +179,9 @@ proc preUpdate*(game: GameStateRef): Option[Action] =
     if game.playingReplay:
       let playbackResult = game.replaySystem.play(game.frameCount)
       game.playingReplay = not playbackResult.replayEnded
-      return playbackResult.playedAction
+      return playbackResult.playedActions
+
+  return @[]
 
 proc update*(game: var GameStateRef) =
   ## Advances the simulation by one frame and increments the frame counter.

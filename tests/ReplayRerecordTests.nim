@@ -1,5 +1,4 @@
 import std/[os, tables, strformat]
-import std/sha1
 import std/monotimes
 import unittest2
 import pkg/glm
@@ -52,37 +51,27 @@ proc makeNoopActions(): Actions[ActionNames] =
 proc getReplayPath(testName: string): string =
   "testData" / testName
 
-proc getReplayActionsHash(replayName: string): string =
-  var player = initReplayPlayer[ActionNames](replayName, makeNoopActions())
-  defer:
-    player.deinit()
+proc compareReplays(replayName1, replayName2: string): bool =
+  var
+    rp1 = initReplayPlayer(replayName1, makeNoopActions())
+    rp2 = initReplayPlayer(replayName2, makeNoopActions())
 
-  var tickN: uint64 = 0
-  var replayActions: seq[RecordedAction[ActionNames]]
   while true:
-    let playback = player.play(tickN)
-    replayActions.add(playback.playedActions)
-    if playback.replayEnded:
-      break
-    tickN += 1
-
-  var hashInput =
-    newStringUninit(replayActions.len * sizeof RecordedAction[ActionNames])
-  for i, action in replayActions:
-    let byteOffset = i * sizeof(action)
-    copyMem(addr hashInput[byteOffset], unsafeAddr action, sizeof(action))
-  $secureHash(hashInput)
+    let (readBuf1, readBuf2) = (rp1.readNewBuf(), rp2.readNewBuf())
+    if rp1.buf != rp2.buf or readBuf1 != readBuf2:
+      # Buffer sizes or contents don't match
+      return false
+    elif readBuf1 == false and readBuf2 == false:
+      # Both replays ended at the same time with no mismatches
+      return true
 
 proc rerecordReplay(
     testName: string
 ): tuple[originalReplayName, rerecordedReplayName, rerecordedFilename: string] =
   let
     replayPath = getReplayPath(testName)
-    rerecordedReplayPath = fmt"{replayPath}.rerecorded"
+    rerecordedReplayPath = fmt"{replayPath}-copy"
     rerecordedFilename = ActionNames.getReplayFilename(rerecordedReplayPath)
-
-  if fileExists(rerecordedFilename):
-    removeFile(rerecordedFilename)
 
   var player = initReplayPlayer[ActionNames](replayPath, makeNoopActions())
   var recorder =
@@ -106,8 +95,5 @@ suite "Replay rerecord tests":
     test testName:
       let (originalReplayName, rerecordedReplayName, rerecordedReplayFile) =
         rerecordReplay(testName)
-      defer:
-        if fileExists(rerecordedReplayFile):
-          removeFile(rerecordedReplayFile)
-      check getReplayActionsHash(originalReplayName) ==
-        getReplayActionsHash(rerecordedReplayName)
+      check compareReplays(originalReplayName, rerecordedReplayName)
+      removeFile(rerecordedReplayFile)
