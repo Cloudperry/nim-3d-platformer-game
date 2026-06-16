@@ -145,10 +145,12 @@ proc initGameState*(conf = none Config): GameStateRef =
       initReplayPlayer[ActionNames](result.conf.replayName, result.actions)
     result.confStorage = initStateStorage[Config](result.conf.replayName)
     let replayName = result.conf.replayName
+    let slangBinPath = result.conf.slangBinPath
     # Restore config that was used when the replay was recorded
     result.conf = result.confStorage.loadState(Config)
     result.conf.recordInputs = false
     result.conf.replayName = replayName
+    result.conf.slangBinPath = slangBinPath
   elif result.conf.recordInputs:
     result.replaySystem = initReplayRecorder[ActionNames](date, result.actions)
     result.confStorage = initStateStorage[Config](date)
